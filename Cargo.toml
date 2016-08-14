@@ -1,0 +1,16 @@
+[package]
+name = "slacker"
+version = "0.1.0"
+authors = ["Ning Sun <sunng@about.me>"]
+
+[dependencies]
+tokio = { git = "https://github.com/tokio-rs/tokio" }
+rustc-serialize = "^0.3.19"
+futures = "0.1.0"
+log = "0.3.6"
+byteorder = "^0.5.3"
+bytes = { git = "https://github.com/carllerche/bytes" }
+
+[dev-dependencies]
+mio = { git = "https://github.com/carllerche/mio", branch = "dev" }
+env_logger = "0.3.0"
