@@ -261,8 +261,6 @@ fn try_read_packet(buf: &mut BlockBuf) -> Option<(Frame<SlackerPacket<Json>, io:
         return None;
     }
 
-    let current_pos = cursor.remaining();
-
     let version = cursor.read_byte().unwrap();
     debug!("version {}", version);
     let serial_id = read_i32(&mut cursor);
