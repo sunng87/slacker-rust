@@ -1,6 +1,8 @@
 #![allow(dead_code, unused_must_use)]
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate nom;
 
 extern crate tokio_io as tio;
 extern crate tokio_core as tcore;
