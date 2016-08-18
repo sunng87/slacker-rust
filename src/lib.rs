@@ -231,7 +231,6 @@ fn read_string(cur: &mut BlockBufCursor, prefix_len: usize) -> Option<String> {
         if cur.remaining() >= len {
             let mut b = vec!(0u8; len);
             cur.read_slice(&mut b);
-            println!("read slice {:?}", b);
             String::from_utf8(b).ok()
         } else {
             None
