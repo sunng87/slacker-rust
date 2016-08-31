@@ -11,9 +11,10 @@ documentation = "http://sunng87.github.io/slacker-rust/"
 readme = "README.md"
 
 [dependencies]
-tokio = { git = "https://github.com/tokio-rs/tokio" }
+tokio-core = { git = "https://github.com/tokio-rs/tokio-core" }
+tokio-proto = { git = "https://github.com/tokio-rs/tokio-proto" }
 rustc-serialize = "^0.3.19"
-futures = "0.1.0"
+futures = { git = "https://github.com/alexcrichton/futures-rs" }
 log = "0.3.6"
 byteorder = "^0.5.3"
 bytes = { git = "https://github.com/carllerche/bytes" }

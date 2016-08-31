@@ -1,18 +1,23 @@
+#![allow(dead_code)]
 #[macro_use]
 extern crate log;
 
-extern crate tokio;
+extern crate tokio_core as tcore;
+extern crate tokio_proto as tproto;
 extern crate futures;
 extern crate rustc_serialize;
 extern crate bytes;
 extern crate byteorder;
 
-use tokio::{server, Service, NewService};
-use tokio::io::{Parse, Serialize, Framed};
-use tokio::proto::pipeline::{Server, Frame};
-use tokio::reactor::Reactor;
+mod empty;
+mod packets;
+
+use tproto::{server, NewService, Service};
+use tproto::io::{Parse, Serialize, Framed};
+use tproto::proto::pipeline::{Server, Frame, Message};
+use tcore::Loop;
 use bytes::{Buf, BlockBuf, BlockBufCursor, MutBuf};
-use futures::{Future, finished, Promise, failed};
+use futures::{Future, finished, Oneshot, failed, BoxFuture, empty};
 use rustc_serialize::json::{self, Json};
 use byteorder::{BigEndian, ByteOrder};
 
@@ -21,93 +26,20 @@ use std::io;
 use std::sync::Arc;
 use std::net::SocketAddr;
 
-static PROTOCOL_VERSION: i16 = 5;
-static RESULT_CODE_SUCCESS: u8 = 0;
-static RESULT_CODE_NOT_FOUND: u8 = 11;
-
-#[derive(Debug)]
-pub enum SlackerContentType {
-    JSON,
-}
-
-#[derive(Debug)]
-pub struct SlackerRequest<T>
-    where T: Send + Sync + 'static
-{
-    pub version: u8,
-    pub serial_id: i32,
-    pub content_type: SlackerContentType,
-    pub fname: String,
-    pub arguments: Vec<T>,
-}
-
-#[derive(Debug)]
-pub struct SlackerResponse<T>
-    where T: Send + Sync + 'static
-{
-    pub version: u8,
-    pub serial_id: i32,
-    pub content_type: SlackerContentType,
-    pub code: u8,
-    pub result: T,
-}
-
-#[derive(Debug)]
-pub struct SlackerInspectRequest {
-    pub version: u8,
-    pub serial_id: i32,
-    pub request_type: u8,
-    pub request_body: String,
-}
-
-#[derive(Debug)]
-pub struct SlackerInspectResponse {
-    pub version: u8,
-    pub serial_id: i32,
-    pub response_body: String,
-}
-
-#[derive(Debug)]
-pub struct SlackerError {
-    pub version: u8,
-    pub serial_id: i32,
-    pub code: u8,
-}
-
-#[derive(Debug)]
-pub struct SlackerPing {
-    pub version: u8,
-}
-
-#[derive(Debug)]
-pub struct SlackerPong {
-    pub version: u8,
-}
-
-#[derive(Debug)]
-pub enum SlackerPacket<T>
-    where T: Send + Sync + 'static
-{
-    Request(SlackerRequest<T>),
-    Response(SlackerResponse<T>),
-    Error(SlackerError),
-    Ping(SlackerPing),
-    Pong(SlackerPong),
-    InspectRequest(SlackerInspectRequest),
-    InspectResponse(SlackerInspectResponse),
-}
+use empty::Empty;
+use packets::*;
 
 #[derive(Clone)]
 pub struct SlackerService<T>
     where T: Send + Sync + 'static
 {
-    functions: Arc<BTreeMap<String, Box<Fn(&Vec<T>) -> Promise<T> + Send + Sync + 'static>>>,
+    functions: Arc<BTreeMap<String, Box<Fn(&Vec<T>) -> Oneshot<T> + Send + Sync + 'static>>>,
 }
 
 impl<T> SlackerService<T>
     where T: Send + Sync + 'static
 {
-    pub fn new(functions: BTreeMap<String, Box<Fn(&Vec<T>) -> Promise<T> + Send + Sync + 'static>>)
+    pub fn new(functions: BTreeMap<String, Box<Fn(&Vec<T>) -> Oneshot<T> + Send + Sync + 'static>>)
                -> SlackerService<T> {
         SlackerService { functions: Arc::new(functions) }
     }
@@ -117,9 +49,9 @@ impl<T> Service for SlackerService<T>
     where T: Send + Sync + 'static
 {
     type Req = SlackerPacket<T>;
-    type Resp = SlackerPacket<T>;
+    type Resp = Message<SlackerPacket<T>, Empty<(), Self::Error>>;
     type Error = io::Error;
-    type Fut = Box<Future<Item = Self::Resp, Error = Self::Error>>;
+    type Fut = BoxFuture<Self::Resp, Self::Error>;
     // type Fut = Finished<SlackerPacket<T>, ()>;
 
     fn call(&self, req: Self::Req) -> Self::Fut {
@@ -137,8 +69,10 @@ impl<T> Service for SlackerService<T>
                                 serial_id: sreq.serial_id,
                                 result: result,
                             }))
+
                         })
-                        .map_err(|_| io::Error::new(io::ErrorKind::Other, "Promise canceled"))
+                        .map(Message::WithoutBody)
+                        .map_err(|_| io::Error::new(io::ErrorKind::Other, "Oneshot canceled"))
                         .boxed()
                 } else {
                     let error = SlackerError {
@@ -146,11 +80,13 @@ impl<T> Service for SlackerService<T>
                         code: RESULT_CODE_NOT_FOUND,
                         serial_id: sreq.serial_id,
                     };
-                    finished(SlackerPacket::Error(error)).boxed()
+                    finished(SlackerPacket::Error(error)).map(Message::WithoutBody).boxed()
                 }
             }
             SlackerPacket::Ping(ref ping) => {
-                finished(SlackerPacket::Pong(SlackerPong { version: ping.version })).boxed()
+                finished(SlackerPacket::Pong(SlackerPong { version: ping.version }))
+                    .map(Message::WithoutBody)
+                    .boxed()
             }
             _ => {
                 Box::new(failed(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported packet")))
@@ -400,11 +336,15 @@ impl Serialize for JsonSlackerCodec {
 
 
 pub fn serve<T>(addr: SocketAddr, new_service: T)
-    where T: NewService< Req = SlackerPacket<Json>, Resp = SlackerPacket<Json>, Error = io::Error> + Send + 'static {
-    let reactor = Reactor::default().unwrap();
-    let handle = reactor.handle();
+    where T: NewService<Req = SlackerPacket<Json>,
+                        Resp = Message<SlackerPacket<Json>, Empty<(), io::Error>>,
+                        Error = io::Error> + Send + 'static
+{
+    let mut lp = Loop::new().unwrap();
+    let handle = lp.handle();
 
-    server::listen(&handle, addr, move |socket| {
+
+    let srv = server::listen(handle, addr, move |socket| {
         // Create the service
         let service = try!(new_service.new_service());
 
@@ -418,8 +358,7 @@ pub fn serve<T>(addr: SocketAddr, new_service: T)
 
         // Return the pipeline server task
         Server::new(service, transport)
-    })
-        .unwrap();
+    });
 
-    reactor.run().unwrap();
+    lp.run(srv.and_then(|_| empty::<(), _>())).unwrap();
 }
