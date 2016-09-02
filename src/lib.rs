@@ -9,15 +9,15 @@ extern crate rustc_serialize;
 extern crate bytes;
 extern crate byteorder;
 
-mod empty;
 mod packets;
 
 use tproto::{server, NewService, Service};
 use tproto::io::{Parse, Serialize, Framed};
-use tproto::proto::pipeline::{Server, Frame, Message};
+use tproto::pipeline::{Server, Frame, Message};
 use tcore::Loop;
 use bytes::{Buf, BlockBuf, BlockBufCursor, MutBuf};
 use futures::{Future, finished, Oneshot, failed, BoxFuture, empty};
+use futures::stream::Empty;
 use rustc_serialize::json::{self, Json};
 use byteorder::{BigEndian, ByteOrder};
 
@@ -26,7 +26,6 @@ use std::io;
 use std::sync::Arc;
 use std::net::SocketAddr;
 
-use empty::Empty;
 use packets::*;
 
 #[derive(Clone)]
@@ -157,11 +156,11 @@ fn write_u32<W>(cur: &mut W, v: u32)
 fn read_string(cur: &mut BlockBufCursor, prefix_len: usize) -> Option<String> {
     if cur.remaining() >= prefix_len {
         let len: usize = if prefix_len == 2 {
-            let raw = read_u16(cur);
+            let raw = cur.read_u16::<BigEndian>();
             debug!("raw {}", raw);
             raw as usize
         } else {
-            read_u32(cur) as usize
+            cur.read_u32::<BigEndian>() as usize
         };
         debug!("len: {}, remaining: {}", len, cur.remaining());
         if cur.remaining() >= len {
@@ -196,19 +195,19 @@ fn try_read_packet(buf: &mut BlockBuf) -> Option<(Frame<SlackerPacket<Json>, io:
         return None;
     }
 
-    let version = cursor.read_byte().unwrap();
+    let version = cursor.read_u8();
     debug!("version {}", version);
     let serial_id = read_i32(&mut cursor);
     debug!("serial id {}", serial_id);
 
-    let packet_code = cursor.read_byte().unwrap();
+    let packet_code = cursor.read_u8();
     debug!("packet code {}", packet_code);
 
     let p = match packet_code {
         0 => {
             if cursor.remaining() >= 3 {
                 // content type
-                let ct = cursor.read_byte().unwrap();
+                let ct = cursor.read_u8();
                 debug!("content-type {}", ct);
 
                 let fname = read_string(&mut cursor, 2);
@@ -250,7 +249,7 @@ fn try_read_packet(buf: &mut BlockBuf) -> Option<(Frame<SlackerPacket<Json>, io:
         2 => Some(Frame::Message(SlackerPacket::Ping(SlackerPing { version: version }))),
         7 => {
             if cursor.remaining() >= 3 {
-                let meta_type = cursor.read_byte().unwrap();
+                let meta_type = cursor.read_u8();
                 read_string(&mut cursor, 2).map(|s| {
                     Frame::Message(SlackerPacket::InspectRequest(SlackerInspectRequest {
                         version: version,
