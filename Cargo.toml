@@ -20,7 +20,6 @@ byteorder = "^0.5.3"
 bytes = { git = "https://github.com/carllerche/bytes" }
 
 [dev-dependencies]
-mio = { git = "https://github.com/carllerche/mio", branch = "dev" }
 env_logger = "0.3.0"
 
 [package.metadata.release]
