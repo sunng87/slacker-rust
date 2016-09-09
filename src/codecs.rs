@@ -1,4 +1,4 @@
-use tproto::io::{Parse, Serialize};
+use tproto::{Parse, Serialize};
 use tproto::pipeline::Frame;
 use bytes::{Buf, BlockBuf, BlockBufCursor, MutBuf};
 use byteorder::BigEndian;
@@ -45,7 +45,7 @@ fn write_string<W>(cur: &mut W, v: &str, prefix_len: usize)
 }
 
 
-fn try_read_packet(buf: &mut BlockBuf) -> Option<(Frame<SlackerPacket<Json>, io::Error>, usize)> {
+fn try_read_packet(buf: &mut BlockBuf) -> Option<(Frame<SlackerPacket<Json>, (), io::Error>, usize)> {
     let mut cursor = buf.buf();
     let cur_rem = cursor.remaining();
     if cursor.remaining() < 6 {
@@ -126,7 +126,7 @@ fn try_read_packet(buf: &mut BlockBuf) -> Option<(Frame<SlackerPacket<Json>, io:
 }
 
 impl Parse for JsonSlackerCodec {
-    type Out = Frame<SlackerPacket<Json>, io::Error>;
+    type Out = Frame<SlackerPacket<Json>, (), io::Error>;
 
     /// TODO: rewrite with nom
     fn parse(&mut self, buf: &mut BlockBuf) -> Option<Self::Out> {
@@ -148,7 +148,7 @@ impl Parse for JsonSlackerCodec {
 
 
 impl Serialize for JsonSlackerCodec {
-    type In = Frame<SlackerPacket<Json>, io::Error>;
+    type In = Frame<SlackerPacket<Json>, (), io::Error>;
 
     fn serialize(&mut self, frame: Self::In, buf: &mut BlockBuf) {
         match frame {

@@ -1,9 +1,10 @@
-#![allow(dead_code)]
+#![allow(dead_code, unused_must_use)]
 #[macro_use]
 extern crate log;
 
 extern crate tokio_core as tcore;
 extern crate tokio_proto as tproto;
+extern crate tokio_service as tservice;
 extern crate futures;
 extern crate rustc_serialize;
 extern crate bytes;
@@ -13,11 +14,11 @@ mod packets;
 mod codecs;
 
 use bytes::BlockBuf;
-use tproto::{server, NewService, Service};
-use tproto::io::Framed;
+use tservice::{NewService, Service};
+use tproto::{server, Framed};
 use tproto::pipeline::{Server, Message};
-use tcore::Loop;
-use futures::{Future, finished, Oneshot, failed, BoxFuture, empty};
+use tcore::reactor::Core;
+use futures::{Future, finished, Oneshot, failed, empty, BoxFuture, Async};
 use futures::stream::Empty;
 use rustc_serialize::json::Json;
 
@@ -48,13 +49,13 @@ impl<T> SlackerService<T>
 impl<T> Service for SlackerService<T>
     where T: Send + Sync + 'static
 {
-    type Req = SlackerPacket<T>;
-    type Resp = Message<SlackerPacket<T>, Empty<(), Self::Error>>;
+    type Request = SlackerPacket<T>;
+    type Response = Message<SlackerPacket<T>, Empty<(), Self::Error>>;
     type Error = io::Error;
-    type Fut = BoxFuture<Self::Resp, Self::Error>;
+    type Future = BoxFuture<Self::Response, Self::Error>;
     // type Fut = Finished<SlackerPacket<T>, ()>;
 
-    fn call(&self, req: Self::Req) -> Self::Fut {
+    fn call(&self, req: Self::Request) -> Self::Future {
         match req {
             SlackerPacket::Request(sreq) => {
                 debug!("getting request: {:?}", sreq.fname);
@@ -93,19 +94,22 @@ impl<T> Service for SlackerService<T>
             }
         }
     }
+
+    fn poll_ready(&self) -> Async<()> {
+        Async::Ready(())
+    }
 }
 
 
-pub fn serve<T>(addr: SocketAddr, new_service: T)
-    where T: NewService<Req = SlackerPacket<Json>,
-                        Resp = Message<SlackerPacket<Json>, Empty<(), io::Error>>,
+pub fn serve<T>(addr: SocketAddr, new_service: T) -> io::Result<()>
+    where T: NewService<Request = SlackerPacket<Json>,
+                        Response = Message<SlackerPacket<Json>, Empty<(), io::Error>>,
                         Error = io::Error> + Send + 'static
 {
-    let mut lp = Loop::new().unwrap();
-    let handle = lp.handle();
+    let mut core = Core::new().unwrap();
+    let handle = core.handle();
 
-
-    let srv = server::listen(handle, addr, move |socket| {
+    try!(server::listen(&handle, addr, move |socket| {
         // Create the service
         let service = try!(new_service.new_service());
 
@@ -119,7 +123,8 @@ pub fn serve<T>(addr: SocketAddr, new_service: T)
 
         // Return the pipeline server task
         Server::new(service, transport)
-    });
+    }));
 
-    lp.run(srv.and_then(|_| empty::<(), _>())).unwrap();
+    core.run(empty::<(), ()>());
+    Ok(())
 }
