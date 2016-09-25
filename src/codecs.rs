@@ -1,6 +1,7 @@
 use tproto::{Parse, Serialize};
 use tproto::pipeline::Frame;
-use bytes::{Buf, BlockBuf, BlockBufCursor, MutBuf};
+use bytes::{Buf, MutBuf};
+use bytes::buf::{BlockBuf, BlockBufCursor};
 use byteorder::BigEndian;
 use rustc_serialize::json::{self, Json};
 

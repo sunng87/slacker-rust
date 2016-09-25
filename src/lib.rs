@@ -13,10 +13,10 @@ extern crate byteorder;
 mod packets;
 mod codecs;
 
-use bytes::BlockBuf;
+use bytes::buf::BlockBuf;
 use tservice::{NewService, Service};
-use tproto::{server, Framed};
-use tproto::pipeline::{Server, Message};
+use tproto::{server, Framed, Message};
+use tproto::pipeline::Server;
 use tcore::reactor::Core;
 use futures::{Future, finished, Oneshot, failed, empty, BoxFuture, Async};
 use futures::stream::Empty;
