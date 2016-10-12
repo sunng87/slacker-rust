@@ -3,7 +3,8 @@ use tproto::pipeline::Frame;
 use bytes::{Buf, MutBuf};
 use bytes::buf::{BlockBuf, BlockBufCursor};
 use byteorder::BigEndian;
-use rustc_serialize::json::{self, Json};
+use serde_json;
+use serde_json::value::Value as Json;
 
 use std::io;
 
@@ -82,7 +83,7 @@ fn try_read_packet(buf: &mut BlockBuf) -> Option<(Frame<SlackerPacket<Json>, (),
                 let args_string = args.unwrap();
                 debug!("args {}", args_string);
 
-                Json::from_str(&args_string)
+                serde_json::from_str(&args_string)
                     .ok()
                     .and_then(|json| {
                         match json {
@@ -162,7 +163,7 @@ impl Serialize for JsonSlackerCodec {
                         buf.write_i32::<BigEndian>(resp.serial_id);
                         // packet type: response, json, success
                         buf.write_slice(&[1u8, 1u8, 0u8]);
-                        let serialized = json::encode(&resp.result).unwrap();
+                        let serialized = serde_json::to_string(&resp.result).unwrap();
                         debug!("writing serialized body: {}", serialized);
                         write_string(buf, &serialized, 4);
                     }
