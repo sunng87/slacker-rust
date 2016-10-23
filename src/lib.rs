@@ -16,6 +16,7 @@ extern crate byteorder;
 
 mod packets;
 mod codecs;
+mod parser;
 mod service;
 
 use tproto::{TcpClient, TcpServer};
