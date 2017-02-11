@@ -12,11 +12,11 @@ extern crate byteorder;
 mod packets;
 mod codecs;
 
-use tservice::Service;
+use tservice::{NewService, Service};
+use tproto::TcpServer;
 use tproto::pipeline::ServerProto;
 use tcore::io::{Io, Framed};
-use tcore::reactor::Core;
-use futures::{future, Future, finished, Oneshot, failed, BoxFuture, Async};
+use futures::{Future, finished, Oneshot, failed, BoxFuture};
 use serde_json::value::Value as Json;
 
 use std::collections::BTreeMap;
@@ -27,19 +27,19 @@ use std::net::SocketAddr;
 use packets::*;
 use codecs::*;
 
-#[derive(Clone)]
+pub type RpcFn<T> = Box<Fn(&Vec<T>) -> Oneshot<T> + Send + Sync + 'static>;
+
 pub struct SlackerService<T>
     where T: Send + Sync + 'static
 {
-    functions: Arc<BTreeMap<String, Box<Fn(&Vec<T>) -> Oneshot<T> + Send + Sync + 'static>>>,
+    functions: Arc<BTreeMap<String, RpcFn<T>>>,
 }
 
 impl<T> SlackerService<T>
     where T: Send + Sync + 'static
 {
-    pub fn new(functions: BTreeMap<String, Box<Fn(&Vec<T>) -> Oneshot<T> + Send + Sync + 'static>>)
-               -> SlackerService<T> {
-        SlackerService { functions: Arc::new(functions) }
+    pub fn new(functions: Arc<BTreeMap<String, RpcFn<T>>>) -> SlackerService<T> {
+        SlackerService { functions: functions }
     }
 }
 
@@ -86,6 +86,21 @@ impl<T> Service for SlackerService<T>
     }
 }
 
+struct NewSlackerService<T>(Arc<BTreeMap<String, RpcFn<T>>>) where T: Send + Sync + 'static;
+
+impl<T> NewService for NewSlackerService<T>
+    where T: Send + Sync + 'static
+{
+    type Request = SlackerPacket<T>;
+    type Response = SlackerPacket<T>;
+    type Error = io::Error;
+    type Instance = SlackerService<T>;
+
+    fn new_service(&self) -> io::Result<Self::Instance> {
+        Ok(SlackerService::new(self.0.clone()))
+    }
+}
+
 pub struct JsonSlacker;
 
 impl<T: Io + 'static> ServerProto<T> for JsonSlacker {
@@ -99,28 +114,7 @@ impl<T: Io + 'static> ServerProto<T> for JsonSlacker {
     }
 }
 
-
-
-// pub fn serve<T>(addr: SocketAddr, new_service: T) -> io::Result<()>
-//     where T: NewService<Request = SlackerPacket<Json>,
-//                         Response = SlackerPacket<Json>,
-//                         Error = io::Error> + Send + 'static
-// {
-//     let mut core = Core::new().unwrap();
-//     let handle = core.handle();
-
-//     try!(server::listen(&handle, addr, move |socket| {
-//         // Create the service
-//         let service = try!(new_service.new_service());
-
-//         // Create the transport
-//         let codec = JsonSlackerCodec;
-//         let transport = EasyFramed::new(socket, codec, codec);
-
-//         // Return the pipeline server task
-//         Server::new(service, transport)
-//     }));
-
-//     core.run(empty::<(), ()>());
-//     Ok(())
-// }
+pub fn serve(addr: SocketAddr, funcs: BTreeMap<String, RpcFn<Json>>) {
+    let new_service = NewSlackerService(Arc::new(funcs));
+    TcpServer::new(JsonSlacker, addr).serve(new_service);
+}
