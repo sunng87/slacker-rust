@@ -55,12 +55,8 @@ impl<'a> EasyBufCursor<'a> {
         }
     }
 
-    fn len(&self) -> usize {
-        self.buf.len()
-    }
-
     fn remaining(&self) -> usize {
-        self.len() - self.index
+        self.buf.len()
     }
 
     fn read_u8(&mut self) -> Option<u8> {
