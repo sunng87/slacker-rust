@@ -1,16 +1,6 @@
-stdin:275:3: 275:3 error: this file contains an un-closed delimiter
-stdin:275 }
-           ^
-stdin:200:33: 200:34 help: did you mean to close this delimiter?
-stdin:200 impl Codec for JsonSlackerCodec {
-                                          ^
-stdin:211:1: 211:3 error: unexpected token: `<<`
-stdin:211 <<<<<<< HEAD
-          ^~
 use tcore::io::{EasyBuf, Codec};
 use tproto::multiplex::RequestId;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use rustc_serialize::json::{self, Json};
 use serde_json;
 use serde_json::value::Value as Json;
 
@@ -243,6 +233,5 @@ impl Codec for JsonSlackerCodec {
 
         }
         Ok(())
-    }
     }
 }
