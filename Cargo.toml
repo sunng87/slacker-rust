@@ -7,7 +7,7 @@ license = "MIT/Apache"
 keywords = ["slacker", "rpc", "clojure", "tokio"]
 homepage = "https://github.com/sunng87/slacker-rust"
 repository = "https://github.com/sunng87/slacker-rust"
-documentation = "http://sunng87.github.io/slacker-rust/"
+documentation = "https://docs.rs/slacker-rust/"
 readme = "README.md"
 
 [dependencies]
