@@ -1,191 +1,237 @@
-use tproto::{Parse, Serialize};
-use tproto::pipeline::Frame;
-use bytes::{Buf, MutBuf};
-use bytes::buf::{BlockBuf, BlockBufCursor};
-use byteorder::BigEndian;
+use tcore::io::{EasyBuf, Codec};
+use tproto::multiplex::RequestId;
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde_json;
 use serde_json::value::Value as Json;
 
-use std::io;
+use std::io::{self, Read, Write};
 
 use packets::*;
 
 #[derive(Copy, Clone)]
 pub struct JsonSlackerCodec;
-fn read_string(cur: &mut BlockBufCursor, prefix_len: usize) -> Option<String> {
-    if cur.remaining() >= prefix_len {
-        let len: usize = if prefix_len == 2 {
-            let raw = cur.read_u16::<BigEndian>();
-            debug!("raw {}", raw);
-            raw as usize
-        } else {
-            cur.read_u32::<BigEndian>() as usize
-        };
-        debug!("len: {}, remaining: {}", len, cur.remaining());
-        if cur.remaining() >= len {
-            let mut b = vec!(0u8; len);
-            cur.read_slice(&mut b);
-            String::from_utf8(b).ok()
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
 
-fn write_string<W>(cur: &mut W, v: &str, prefix_len: usize)
-    where W: MutBuf
-{
+
+fn write_string(cur: &mut Vec<u8>, v: &str, prefix_len: usize) -> io::Result<()> {
     if prefix_len == 2 {
-        cur.write_u16::<BigEndian>(v.len() as u16);
+        try!(cur.write_u16::<BigEndian>(v.len() as u16));
     } else {
-        cur.write_u32::<BigEndian>(v.len() as u32);
+        try!(cur.write_u32::<BigEndian>(v.len() as u32));
     }
 
-    cur.write_str(v);
+    cur.write_all(v.as_bytes())
 }
 
+macro_rules! get {
+    ($expr: expr) => {
+        if let Some(v) = $expr {
+            v
+        } else {
+            return None;
+        }
+    }
+}
 
-fn try_read_packet(buf: &mut BlockBuf) -> Option<(Frame<SlackerPacket<Json>, (), io::Error>, usize)> {
-    let mut cursor = buf.buf();
-    let cur_rem = cursor.remaining();
-    if cursor.remaining() < 6 {
-        return None;
+struct EasyBufCursor<'a> {
+    pub buf: &'a [u8],
+    pub index: usize,
+}
+
+impl<'a> EasyBufCursor<'a> {
+    fn new(input: &'a EasyBuf) -> EasyBufCursor<'a> {
+        EasyBufCursor {
+            buf: input.as_slice(),
+            index: 0,
+        }
     }
 
-    let version = cursor.read_u8();
-    debug!("version {}", version);
-    let serial_id = cursor.read_i32::<BigEndian>();
-    debug!("serial id {}", serial_id);
+    fn remaining(&self) -> usize {
+        self.buf.len()
+    }
 
-    let packet_code = cursor.read_u8();
-    debug!("packet code {}", packet_code);
+    fn read_u8(&mut self) -> Option<u8> {
+        self.buf
+            .read_u8()
+            .map(|t| {
+                self.index = self.index + 1;
+                t
+            })
+            .ok()
+    }
 
-    let p = match packet_code {
-        0 => {
-            if cursor.remaining() >= 3 {
-                // content type
-                let ct = cursor.read_u8();
-                debug!("content-type {}", ct);
+    fn read_u16(&mut self) -> Option<u16> {
+        self.buf
+            .read_u16::<BigEndian>()
+            .map(|t| {
+                self.index = self.index + 2;
+                t
+            })
+            .ok()
+    }
 
-                let fname = read_string(&mut cursor, 2);
-                if fname.is_none() {
-                    return None;
-                }
-                let fname_string = fname.unwrap();
-                debug!("fname {}", fname_string);
+    fn read_u32(&mut self) -> Option<u32> {
+        self.buf
+            .read_u32::<BigEndian>()
+            .map(|t| {
+                self.index = self.index + 4;
+                t
+            })
+            .ok()
+    }
 
-                let args = read_string(&mut cursor, 4);
-                if args.is_none() {
-                    return None;
-                }
-                let args_string = args.unwrap();
-                debug!("args {}", args_string);
+    fn read_i32(&mut self) -> Option<i32> {
+        self.buf
+            .read_i32::<BigEndian>()
+            .map(|t| {
+                self.index = self.index + 4;
+                t
+            })
+            .ok()
+    }
 
-                serde_json::from_str(&args_string)
-                    .ok()
-                    .and_then(|json| {
-                        match json {
-                            Json::Array(array) => Some(array),
-                            _ => None,
-                        }
-                    })
-                    .map(|p| {
-                        debug!("arguments: {:?}", p);
-                        Frame::Message(SlackerPacket::Request(SlackerRequest {
-                            version: version,
-                            serial_id: serial_id,
-                            content_type: SlackerContentType::JSON,
-                            fname: fname_string,
-                            arguments: p,
-                        }))
-                    })
+    fn read_slice(&mut self, bytes: &mut [u8]) {
+        self.buf.read(bytes).map(|s| self.index = self.index + s);
+    }
+
+    fn read_string(&mut self, prefix_len: usize) -> Option<String> {
+        if self.remaining() >= prefix_len {
+            let len: usize = if prefix_len == 2 {
+                let raw = get!(self.read_u16());
+                debug!("raw {:?}", raw);
+                raw as usize
             } else {
-                return None;
-            }
-        }
-        2 => Some(Frame::Message(SlackerPacket::Ping(SlackerPing { version: version }))),
-        7 => {
-            if cursor.remaining() >= 3 {
-                let meta_type = cursor.read_u8();
-                read_string(&mut cursor, 2).map(|s| {
-                    Frame::Message(SlackerPacket::InspectRequest(SlackerInspectRequest {
-                        version: version,
-                        serial_id: serial_id,
-                        request_type: meta_type,
-                        request_body: s,
-                    }))
-                })
+                get!(self.read_u32()) as usize
+            };
+            debug!("len: {}, remaining: {}", len, self.remaining());
+            if self.remaining() >= len {
+                let mut b = vec!(0u8; len);
+                self.read_slice(&mut b);
+                String::from_utf8(b).ok()
             } else {
                 None
             }
-        }
-        _ => unimplemented!(),
-    };
-
-    p.map(|p| (p, cur_rem - cursor.remaining()))
-}
-
-impl Parse for JsonSlackerCodec {
-    type Out = Frame<SlackerPacket<Json>, (), io::Error>;
-
-    /// TODO: rewrite with nom
-    fn parse(&mut self, buf: &mut BlockBuf) -> Option<Self::Out> {
-        // Only compact if needed
-        if !buf.is_compact() {
-            buf.compact();
+        } else {
+            None
         }
 
-        try_read_packet(buf).map(|(p, s)| {
-            buf.shift(s);
-            p
-        })
-    }
-
-    fn done(&mut self, _: &mut BlockBuf) -> Option<Self::Out> {
-        Some(Frame::Done)
     }
 }
 
+fn try_read_packet(buf: &mut EasyBuf) -> Option<SlackerPacket<Json>> {
+    if buf.len() < 6 {
+        return None;
+    }
 
-impl Serialize for JsonSlackerCodec {
-    type In = Frame<SlackerPacket<Json>, (), io::Error>;
+    let (packet, index) = {
+        let mut cursor = EasyBufCursor::new(buf);
 
-    fn serialize(&mut self, frame: Self::In, buf: &mut BlockBuf) {
-        match frame {
-            Frame::Message(packet) => {
-                match packet {
-                    SlackerPacket::Response(ref resp) => {
-                        debug!("writing version: {}", resp.version);
-                        buf.write_u8(resp.version);
-                        debug!("writing serial id: {}", resp.serial_id);
-                        buf.write_i32::<BigEndian>(resp.serial_id);
-                        // packet type: response, json, success
-                        buf.write_slice(&[1u8, 1u8, 0u8]);
-                        let serialized = serde_json::to_string(&resp.result).unwrap();
-                        debug!("writing serialized body: {}", serialized);
-                        write_string(buf, &serialized, 4);
-                    }
-                    SlackerPacket::Error(ref resp) => {
-                        buf.write_u8(resp.version);
-                        buf.write_i32::<BigEndian>(resp.serial_id);
-                        // packet type: response, json, success
-                        buf.write_slice(&[4u8, resp.code]);
-                    }
-                    SlackerPacket::Pong(ref pong) => {
-                        buf.write_u8(pong.version);
-                        buf.write_i32::<BigEndian>(0);
-                    }
-                    SlackerPacket::InspectResponse(ref resp) => {
-                        buf.write_u8(resp.version);
-                        buf.write_i32::<BigEndian>(resp.serial_id);
-                        write_string(buf, &resp.response_body, 2);
-                    }
-                    _ => unimplemented!(),
+        let version = get!(cursor.read_u8());
+        debug!("version {:?}", version);
+
+        let serial_id = get!(cursor.read_i32());
+        debug!("serial id {}", serial_id);
+
+        let packet_code = get!(cursor.read_u8());
+        debug!("packet code {}", packet_code);
+
+        let p = match packet_code {
+            0 => {
+                if cursor.remaining() >= 3 {
+                    // content type
+                    let ct = get!(cursor.read_u8());
+                    debug!("content-type {}", ct);
+
+                    let fname = get!(cursor.read_string(2));
+
+                    let args = get!(cursor.read_string(4));
+
+                    serde_json::from_str(&args)
+                        .ok()
+                        .and_then(|json| {
+                            match json {
+                                Json::Array(array) => Some(array),
+                                _ => None,
+                            }
+                        })
+                        .map(|p| {
+                            debug!("arguments: {:?}", p);
+                            SlackerPacket::Request(SlackerRequest {
+                                version: version,
+                                serial_id: serial_id,
+                                content_type: SlackerContentType::JSON,
+                                fname: fname,
+                                arguments: p,
+                            })
+                        })
+                } else {
+                    return None;
                 }
             }
-            _ => {}
+            2 => Some(SlackerPacket::Ping(SlackerPing { version: version })),
+            7 => {
+                if cursor.remaining() >= 3 {
+                    let meta_type = get!(cursor.read_u8());
+                    cursor.read_string(2).map(|s| {
+                        SlackerPacket::InspectRequest(SlackerInspectRequest {
+                            version: version,
+                            serial_id: serial_id,
+                            request_type: meta_type,
+                            request_body: s,
+                        })
+                    })
+                } else {
+                    return None;
+                }
+            }
+            _ => unimplemented!(),
+        };
+        (p, cursor.index)
+    };
+
+    buf.drain_to(index);
+    packet
+}
+
+impl Codec for JsonSlackerCodec {
+    type In = SlackerPacket<Json>;
+    type Out = SlackerPacket<Json>;
+
+    /// TODO: rewrite with nom
+    fn decode(&mut self, buf: &mut EasyBuf) -> io::Result<Option<Self::Out>> {
+        Ok(try_read_packet(buf))
+    }
+
+    fn encode(&mut self, frame: Self::In, buf: &mut Vec<u8>) -> io::Result<()> {
+        match frame {
+            SlackerPacket::Response(ref resp) => {
+                debug!("writing version: {}", resp.version);
+                try!(buf.write_u8(resp.version));
+                debug!("writing serial id: {}", resp.serial_id);
+                try!(buf.write_i32::<BigEndian>(resp.serial_id));
+                // packet type: response, json, success
+                try!(buf.write_all(&[1u8, 1u8, 0u8]));
+                let serialized = serde_json::to_string(&resp.result).unwrap();
+                debug!("writing serialized body: {}", serialized);
+                try!(write_string(buf, &serialized, 4));
+            }
+            SlackerPacket::Error(ref resp) => {
+                try!(buf.write_u8(resp.version));
+                try!(buf.write_i32::<BigEndian>(resp.serial_id));
+                // packet type: response, json, success
+                try!(buf.write_all(&[4u8, resp.code]));
+            }
+            SlackerPacket::Pong(ref pong) => {
+                try!(buf.write_u8(pong.version));
+                try!(buf.write_i32::<BigEndian>(0));
+            }
+            SlackerPacket::InspectResponse(ref resp) => {
+                try!(buf.write_u8(resp.version));
+                try!(buf.write_i32::<BigEndian>(resp.serial_id));
+                try!(write_string(buf, &resp.response_body, 2));
+            }
+            _ => unimplemented!(),
+
         }
+        Ok(())
     }
 }
