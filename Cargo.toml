@@ -11,13 +11,13 @@ documentation = "http://sunng87.github.io/slacker-rust/"
 readme = "README.md"
 
 [dependencies]
-tokio-core = "0.1"
-tokio-proto = { git = "https://github.com/tokio-rs/tokio-proto" }
-tokio-service = { git = "https://github.com/tokio-rs/tokio-service" }
+tokio-core = "^0.1.0"
+tokio-proto = "^0.1.0"
+tokio-service = "^0.1.0"
 serde_json = "^0.8.0"
-futures = "0.1"
+futures = "^0.1.0"
 log = "0.3.6"
-byteorder = "^0.5.3"
+byteorder = "^1.0.0"
 bytes = { git = "https://github.com/carllerche/bytes" }
 
 [dev-dependencies]
