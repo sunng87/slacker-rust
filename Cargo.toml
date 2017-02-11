@@ -14,7 +14,7 @@ readme = "README.md"
 tokio-core = "0.1"
 tokio-proto = { git = "https://github.com/tokio-rs/tokio-proto" }
 tokio-service = { git = "https://github.com/tokio-rs/tokio-service" }
-rustc-serialize = "^0.3.19"
+serde_json = "^0.8.0"
 futures = "0.1"
 log = "0.3.6"
 byteorder = "^0.5.3"

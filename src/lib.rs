@@ -6,7 +6,7 @@ extern crate tokio_core as tcore;
 extern crate tokio_proto as tproto;
 extern crate tokio_service as tservice;
 extern crate futures;
-extern crate rustc_serialize;
+extern crate serde_json;
 extern crate bytes;
 extern crate byteorder;
 
@@ -20,7 +20,7 @@ use tproto::pipeline::Server;
 use tcore::reactor::Core;
 use futures::{Future, finished, Oneshot, failed, empty, BoxFuture, Async};
 use futures::stream::Empty;
-use rustc_serialize::json::Json;
+use serde_json::value::Value as Json;
 
 use std::collections::BTreeMap;
 use std::io;

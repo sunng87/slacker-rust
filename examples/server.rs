@@ -2,12 +2,12 @@
 extern crate log;
 
 extern crate slacker;
-extern crate rustc_serialize;
+extern crate serde_json;
 extern crate futures;
 extern crate env_logger;
 
 use futures::{oneshot, Oneshot};
-use rustc_serialize::json::Json;
+use serde_json::value::Value as Json;
 use slacker::{serve, SlackerService};
 
 use std::collections::BTreeMap;
