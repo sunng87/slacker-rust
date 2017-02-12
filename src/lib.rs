@@ -16,7 +16,9 @@ use tservice::{NewService, Service};
 use tproto::TcpServer;
 use tproto::pipeline::ServerProto;
 use tcore::io::{Io, Framed};
-use futures::{Future, finished, Oneshot, failed, BoxFuture};
+use futures::Future;
+use futures::future::{ok, err, BoxFuture};
+use futures::sync::oneshot::Receiver;
 use serde_json::value::Value as Json;
 
 use std::collections::BTreeMap;
@@ -27,7 +29,7 @@ use std::net::SocketAddr;
 use packets::*;
 use codecs::*;
 
-pub type RpcFn<T> = Box<Fn(&Vec<T>) -> Oneshot<T> + Send + Sync + 'static>;
+pub type RpcFn<T> = Box<Fn(&Vec<T>) -> Receiver<T> + Send + Sync + 'static>;
 
 pub struct SlackerService<T>
     where T: Send + Sync + 'static
@@ -59,7 +61,7 @@ impl<T> Service for SlackerService<T>
                     f(&sreq.arguments)
                         .and_then(move |result| {
                             debug!("getting results");
-                            finished(SlackerPacket::Response(SlackerResponse {
+                            ok(SlackerPacket::Response(SlackerResponse {
                                 version: sreq.version,
                                 code: RESULT_CODE_SUCCESS,
                                 content_type: sreq.content_type,
@@ -75,13 +77,13 @@ impl<T> Service for SlackerService<T>
                         code: RESULT_CODE_NOT_FOUND,
                         serial_id: sreq.serial_id,
                     };
-                    finished(SlackerPacket::Error(error)).boxed()
+                    ok(SlackerPacket::Error(error)).boxed()
                 }
             }
             SlackerPacket::Ping(ref ping) => {
-                finished(SlackerPacket::Pong(SlackerPong { version: ping.version })).boxed()
+                ok(SlackerPacket::Pong(SlackerPong { version: ping.version })).boxed()
             }
-            _ => failed(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported packet")).boxed(),
+            _ => err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported packet")).boxed(),
         }
     }
 }
