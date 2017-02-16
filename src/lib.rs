@@ -16,6 +16,7 @@ mod service;
 use tproto::TcpServer;
 use tproto::pipeline::ServerProto;
 use tcore::io::{Io, Framed};
+use tcore::net::TcpStream;
 use serde_json::value::Value as Json;
 
 use std::collections::BTreeMap;
@@ -29,13 +30,14 @@ use service::*;
 
 struct JsonSlacker;
 
-impl<T: Io + 'static> ServerProto<T> for JsonSlacker {
+impl ServerProto<TcpStream> for JsonSlacker {
     type Request = SlackerPacket<Json>;
     type Response = SlackerPacket<Json>;
-    type Transport = Framed<T, JsonSlackerCodec>;
-    type BindTransport = io::Result<Framed<T, JsonSlackerCodec>>;
+    type Transport = Framed<TcpStream, JsonSlackerCodec>;
+    type BindTransport = io::Result<Self::Transport>;
 
-    fn bind_transport(&self, io: T) -> io::Result<Framed<T, JsonSlackerCodec>> {
+    fn bind_transport(&self, io: TcpStream) -> Self::BindTransport {
+        io.set_nodelay(true);
         Ok(io.framed(JsonSlackerCodec))
     }
 }
