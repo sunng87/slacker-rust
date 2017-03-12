@@ -117,12 +117,12 @@ impl<'a> EasyBufCursor<'a> {
     }
 }
 
-fn try_read_packet(buf: &mut EasyBuf) -> Option<SlackerPacket<Json>> {
+fn try_read_packet(buf: &mut EasyBuf) -> Option<(RequestId, SlackerPacket<Json>)> {
     if buf.len() < 6 {
         return None;
     }
 
-    let (packet, index) = {
+    let (packet, req_id, index) = {
         let mut cursor = EasyBufCursor::new(buf);
 
         let version = get!(cursor.read_u8());
@@ -185,23 +185,25 @@ fn try_read_packet(buf: &mut EasyBuf) -> Option<SlackerPacket<Json>> {
             }
             _ => unimplemented!(),
         };
-        (p, cursor.index)
+        (p, serial_id, cursor.index)
     };
 
     buf.drain_to(index);
-    packet
+    packet.map(|p| (req_id as RequestId, p))
+
 }
 
 impl Codec for JsonSlackerCodec {
-    type In = SlackerPacket<Json>;
-    type Out = SlackerPacket<Json>;
+    type In = (RequestId, SlackerPacket<Json>);
+    type Out = (RequestId, SlackerPacket<Json>);
 
     /// TODO: rewrite with nom
     fn decode(&mut self, buf: &mut EasyBuf) -> io::Result<Option<Self::Out>> {
         Ok(try_read_packet(buf))
     }
 
-    fn encode(&mut self, frame: Self::In, buf: &mut Vec<u8>) -> io::Result<()> {
+    fn encode(&mut self, frame_in: Self::In, buf: &mut Vec<u8>) -> io::Result<()> {
+        let (_, frame) = frame_in;
         match frame {
             SlackerPacket::Response(ref resp) => {
                 debug!("writing version: {}", resp.version);

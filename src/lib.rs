@@ -14,7 +14,7 @@ mod codecs;
 mod service;
 
 use tproto::TcpServer;
-use tproto::pipeline::ServerProto;
+use tproto::multiplex::ServerProto;
 use tcore::io::{Io, Framed};
 use tcore::net::TcpStream;
 use serde_json::value::Value as Json;
