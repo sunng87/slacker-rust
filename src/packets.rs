@@ -1,4 +1,4 @@
-pub static PROTOCOL_VERSION: i16 = 5;
+pub static PROTOCOL_VERSION: u8 = 5;
 pub static RESULT_CODE_SUCCESS: u8 = 0;
 pub static RESULT_CODE_NOT_FOUND: u8 = 11;
 
