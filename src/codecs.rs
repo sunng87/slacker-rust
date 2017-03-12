@@ -167,7 +167,40 @@ fn try_read_packet(buf: &mut EasyBuf) -> Option<(RequestId, SlackerPacket<Json>)
                     return None;
                 }
             }
+            1 => {
+                if cursor.remaining() >= 6 {
+                    // content type
+                    let ct = get!(cursor.read_u8());
+                    debug!("content-type {}", ct);
+                    // result code
+                    let rt = get!(cursor.read_u8());
+                    // body
+                    let body = get!(cursor.read_string(4));
+                    serde_json::from_str(&body).ok().map(|r| {
+                        debug!("result: {:?}", body);
+                        SlackerPacket::Response(SlackerResponse {
+                            version: version,
+                            serial_id: serial_id,
+                            content_type: SlackerContentType::JSON,
+                            code: rt,
+                            result: r,
+                        })
+                    })
+                } else {
+                    None
+                }
+            }
             2 => Some(SlackerPacket::Ping(SlackerPing { version: version })),
+            3 => Some(SlackerPacket::Pong(SlackerPong { version: version })),
+            4 => {
+                cursor.read_u8().map(|rt| {
+                    SlackerPacket::Error(SlackerError {
+                        version: version,
+                        serial_id: serial_id,
+                        code: rt,
+                    })
+                })
+            }
             7 => {
                 if cursor.remaining() >= 3 {
                     let meta_type = get!(cursor.read_u8());
@@ -183,6 +216,16 @@ fn try_read_packet(buf: &mut EasyBuf) -> Option<(RequestId, SlackerPacket<Json>)
                     return None;
                 }
             }
+            8 => {
+                cursor.read_string(2).map(|s| {
+                    SlackerPacket::InspectResponse(SlackerInspectResponse {
+                        version: version,
+                        serial_id: serial_id,
+                        response_body: s,
+                    })
+                })
+            }
+
             _ => unimplemented!(),
         };
         (p, serial_id, cursor.index)
