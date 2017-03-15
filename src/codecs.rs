@@ -248,6 +248,15 @@ impl Codec for JsonSlackerCodec {
     fn encode(&mut self, frame_in: Self::In, buf: &mut Vec<u8>) -> io::Result<()> {
         let (_, frame) = frame_in;
         match frame {
+            SlackerPacket::Request(ref req) => {
+                try!(buf.write_u8(req.version));
+                try!(buf.write_i32::<BigEndian>(req.serial_id));
+                // packet type: request, json
+                try!(buf.write_all(&[0u8, 1u8]));
+                try!(write_string(buf, &req.fname, 2));
+                let serialized = serde_json::to_string(&req.arguments).unwrap();
+                try!(write_string(buf, &serialized, 4));
+            }
             SlackerPacket::Response(ref resp) => {
                 debug!("writing version: {}", resp.version);
                 try!(buf.write_u8(resp.version));
@@ -265,9 +274,22 @@ impl Codec for JsonSlackerCodec {
                 // packet type: response, json, success
                 try!(buf.write_all(&[4u8, resp.code]));
             }
+            SlackerPacket::Ping(ref ping) => {
+                try!(buf.write_u8(ping.version));
+                try!(buf.write_u8(2));
+                try!(buf.write_i32::<BigEndian>(0));
+            }
             SlackerPacket::Pong(ref pong) => {
                 try!(buf.write_u8(pong.version));
+                try!(buf.write_u8(3));
                 try!(buf.write_i32::<BigEndian>(0));
+            }
+            SlackerPacket::InspectRequest(ref req) => {
+                try!(buf.write_u8(req.version));
+                try!(buf.write_u8(7));
+                try!(buf.write_i32::<BigEndian>(req.serial_id));
+                try!(buf.write_u8(req.request_type));
+                try!(write_string(buf, &req.request_body, 2));
             }
             SlackerPacket::InspectResponse(ref resp) => {
                 try!(buf.write_u8(resp.version));
