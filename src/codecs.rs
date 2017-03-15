@@ -296,8 +296,6 @@ impl Codec for JsonSlackerCodec {
                 try!(buf.write_i32::<BigEndian>(resp.serial_id));
                 try!(write_string(buf, &resp.response_body, 2));
             }
-            _ => unimplemented!(),
-
         }
         Ok(())
     }
