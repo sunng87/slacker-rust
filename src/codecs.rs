@@ -1,4 +1,5 @@
-use tcore::io::{EasyBuf, Codec};
+use bytes::{BytesMut, BufMut, Writer};
+use tio::codec::{Encoder, Decoder};
 use tproto::multiplex::RequestId;
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use serde_json;
@@ -12,7 +13,7 @@ use packets::*;
 pub struct JsonSlackerCodec;
 
 
-fn write_string(cur: &mut Vec<u8>, v: &str, prefix_len: usize) -> io::Result<()> {
+fn write_string(cur: &mut Writer<&mut BytesMut>, v: &str, prefix_len: usize) -> io::Result<()> {
     if prefix_len == 2 {
         try!(cur.write_u16::<BigEndian>(v.len() as u16));
     } else {
@@ -38,9 +39,9 @@ struct EasyBufCursor<'a> {
 }
 
 impl<'a> EasyBufCursor<'a> {
-    fn new(input: &'a EasyBuf) -> EasyBufCursor<'a> {
+    fn new(input: &'a BytesMut) -> EasyBufCursor<'a> {
         EasyBufCursor {
-            buf: input.as_slice(),
+            buf: input.as_ref(),
             index: 0,
         }
     }
@@ -94,7 +95,7 @@ impl<'a> EasyBufCursor<'a> {
     }
 
     fn read_string(&mut self, prefix_len: usize) -> Option<String> {
-        if self.remaining() >= prefix_len {
+        if self.remaining() > prefix_len {
             let len: usize = if prefix_len == 2 {
                 let raw = get!(self.read_u16());
                 debug!("raw {:?}", raw);
@@ -117,7 +118,7 @@ impl<'a> EasyBufCursor<'a> {
     }
 }
 
-fn try_read_packet(buf: &mut EasyBuf) -> Option<(RequestId, SlackerPacket<Json>)> {
+fn try_read_packet(buf: &mut BytesMut) -> Option<(RequestId, SlackerPacket<Json>)> {
     if buf.len() < 6 {
         return None;
     }
@@ -231,31 +232,27 @@ fn try_read_packet(buf: &mut EasyBuf) -> Option<(RequestId, SlackerPacket<Json>)
         (p, serial_id, cursor.index)
     };
 
-    buf.drain_to(index);
+    buf.split_to(index);
     packet.map(|p| (req_id as RequestId, p))
 
 }
 
-impl Codec for JsonSlackerCodec {
-    type In = (RequestId, SlackerPacket<Json>);
-    type Out = (RequestId, SlackerPacket<Json>);
+impl Encoder for JsonSlackerCodec {
+    type Item = (RequestId, SlackerPacket<Json>);
+    type Error = io::Error;
 
-    /// TODO: rewrite with nom
-    fn decode(&mut self, buf: &mut EasyBuf) -> io::Result<Option<Self::Out>> {
-        Ok(try_read_packet(buf))
-    }
-
-    fn encode(&mut self, frame_in: Self::In, buf: &mut Vec<u8>) -> io::Result<()> {
+    fn encode(&mut self, frame_in: Self::Item, buf0: &mut BytesMut) -> Result<(), Self::Error> {
         let (_, frame) = frame_in;
+        let mut buf = buf0.writer();
         match frame {
             SlackerPacket::Request(ref req) => {
                 try!(buf.write_u8(req.version));
                 try!(buf.write_i32::<BigEndian>(req.serial_id));
                 // packet type: request, json
                 try!(buf.write_all(&[0u8, 1u8]));
-                try!(write_string(buf, &req.fname, 2));
+                try!(write_string(&mut buf, &req.fname, 2));
                 let serialized = serde_json::to_string(&req.arguments).unwrap();
-                try!(write_string(buf, &serialized, 4));
+                try!(write_string(&mut buf, &serialized, 4));
             }
             SlackerPacket::Response(ref resp) => {
                 debug!("writing version: {}", resp.version);
@@ -266,7 +263,7 @@ impl Codec for JsonSlackerCodec {
                 try!(buf.write_all(&[1u8, 1u8, 0u8]));
                 let serialized = serde_json::to_string(&resp.result).unwrap();
                 debug!("writing serialized body: {}", serialized);
-                try!(write_string(buf, &serialized, 4));
+                try!(write_string(&mut buf, &serialized, 4));
             }
             SlackerPacket::Error(ref resp) => {
                 try!(buf.write_u8(resp.version));
@@ -289,14 +286,24 @@ impl Codec for JsonSlackerCodec {
                 try!(buf.write_u8(7));
                 try!(buf.write_i32::<BigEndian>(req.serial_id));
                 try!(buf.write_u8(req.request_type));
-                try!(write_string(buf, &req.request_body, 2));
+                try!(write_string(&mut buf, &req.request_body, 2));
             }
             SlackerPacket::InspectResponse(ref resp) => {
                 try!(buf.write_u8(resp.version));
                 try!(buf.write_i32::<BigEndian>(resp.serial_id));
-                try!(write_string(buf, &resp.response_body, 2));
+                try!(write_string(&mut buf, &resp.response_body, 2));
             }
         }
         Ok(())
+    }
+}
+
+impl Decoder for JsonSlackerCodec {
+    type Item = (RequestId, SlackerPacket<Json>);
+    type Error = io::Error;
+
+    /// TODO: rewrite with nom
+    fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
+        Ok(try_read_packet(buf))
     }
 }

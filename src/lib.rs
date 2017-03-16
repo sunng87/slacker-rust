@@ -2,11 +2,13 @@
 #[macro_use]
 extern crate log;
 
+extern crate tokio_io as tio;
 extern crate tokio_core as tcore;
 extern crate tokio_proto as tproto;
 extern crate tokio_service as tservice;
 extern crate futures;
 extern crate serde_json;
+extern crate bytes;
 extern crate byteorder;
 
 mod packets;
@@ -15,7 +17,8 @@ mod service;
 
 use tproto::{TcpClient, TcpServer};
 use tproto::multiplex::{ClientProto, ServerProto, ClientService};
-use tcore::io::{Io, Framed};
+use tio::AsyncRead;
+use tio::codec::Framed;
 use tcore::net::TcpStream;
 use tcore::reactor::Handle;
 use futures::{Future, BoxFuture};

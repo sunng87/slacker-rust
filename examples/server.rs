@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 fn echo(s: &Vec<Json>) -> Oneshot<Json> {
     debug!("calling {:?}", s);
     let (c, p) = oneshot::<Json>();
-    c.complete(Json::Array(s.clone()));
+    c.send(Json::Array(s.clone())).unwrap();
     p
 }
 
