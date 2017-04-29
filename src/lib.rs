@@ -35,6 +35,8 @@ use packets::*;
 use codecs::*;
 use service::*;
 
+pub type JsonRpcFn = RpcFn<Json>;
+
 struct JsonSlacker;
 
 impl ServerProto<TcpStream> for JsonSlacker {
@@ -49,6 +51,25 @@ impl ServerProto<TcpStream> for JsonSlacker {
     }
 }
 
+pub struct Server {
+    addr: SocketAddr,
+    funcs: Arc<BTreeMap<String, JsonRpcFn>>,
+}
+
+impl Server {
+    pub fn new(addr: SocketAddr, funcs: BTreeMap<String, RpcFn<Json>>) -> Self {
+        Server {
+            addr,
+            funcs: Arc::new(funcs),
+        }
+    }
+
+    pub fn serve(&self) {
+        let new_service = NewSlackerService(self.funcs.clone());
+        TcpServer::new(JsonSlacker, self.addr).serve(new_service);
+    }
+}
+
 impl ClientProto<TcpStream> for JsonSlacker {
     type Request = SlackerPacket<Json>;
     type Response = SlackerPacket<Json>;
@@ -59,11 +80,6 @@ impl ClientProto<TcpStream> for JsonSlacker {
         io.set_nodelay(true);
         Ok(io.framed(JsonSlackerCodec))
     }
-}
-
-pub fn serve(addr: SocketAddr, funcs: BTreeMap<String, RpcFn<Json>>) {
-    let new_service = NewSlackerService(Arc::new(funcs));
-    TcpServer::new(JsonSlacker, addr).serve(new_service);
 }
 
 pub struct Client {
@@ -87,13 +103,13 @@ impl Client {
                    handle: &Handle)
                    -> Box<Future<Item = Client, Error = io::Error>> {
         let rt = TcpClient::new(JsonSlacker)
-                     .connect(addr, handle)
-                     .map(|client_service| {
-                         Client {
-                             inner: client_service,
-                             serial_id_gen: AtomicIsize::new(0),
-                         }
-                     });
+            .connect(addr, handle)
+            .map(|client_service| {
+                     Client {
+                         inner: client_service,
+                         serial_id_gen: AtomicIsize::new(0),
+                     }
+                 });
         Box::new(rt)
     }
 
@@ -110,19 +126,17 @@ impl Client {
         let sid = self.serial_id_gen.fetch_add(1, Ordering::SeqCst) as i32;
 
         let packet = SlackerPacket::Request(SlackerRequest {
-            version: PROTOCOL_VERSION,
-            serial_id: sid,
-            content_type: SlackerContentType::JSON,
-            fname: fname,
-            arguments: args,
-        });
+                                                version: PROTOCOL_VERSION,
+                                                serial_id: sid,
+                                                content_type: SlackerContentType::JSON,
+                                                fname: fname,
+                                                arguments: args,
+                                            });
         self.call(packet)
-            .map(|t| {
-                match t {
-                    SlackerPacket::Response(r) => r.result,
-                    _ => Json::Null,
-                }
-            })
+            .map(|t| match t {
+                     SlackerPacket::Response(r) => r.result,
+                     _ => Json::Null,
+                 })
             .boxed()
     }
 }

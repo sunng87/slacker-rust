@@ -42,12 +42,12 @@ impl<T> Service for SlackerService<T>
                         .and_then(move |result| {
                             debug!("getting results");
                             ok(SlackerPacket::Response(SlackerResponse {
-                                version: sreq.version,
-                                code: RESULT_CODE_SUCCESS,
-                                content_type: sreq.content_type,
-                                serial_id: sreq.serial_id,
-                                result: result,
-                            }))
+                                                           version: sreq.version,
+                                                           code: RESULT_CODE_SUCCESS,
+                                                           content_type: sreq.content_type,
+                                                           serial_id: sreq.serial_id,
+                                                           result: result,
+                                                       }))
                         })
                         .map_err(|_| io::Error::new(io::ErrorKind::Other, "Oneshot canceled"))
                         .boxed()
