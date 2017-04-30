@@ -7,6 +7,7 @@ extern crate tokio_core as tcore;
 extern crate tokio_proto as tproto;
 extern crate tokio_service as tservice;
 extern crate futures;
+extern crate futures_cpupool;
 extern crate serde_json;
 extern crate bytes;
 extern crate byteorder;
@@ -22,6 +23,7 @@ use tio::codec::Framed;
 use tcore::net::TcpStream;
 use tcore::reactor::Handle;
 use futures::{Future, BoxFuture};
+use futures_cpupool::CpuPool;
 use tservice::Service;
 use serde_json::value::Value as Json;
 
@@ -54,13 +56,26 @@ impl ServerProto<TcpStream> for JsonSlacker {
 pub struct Server {
     addr: SocketAddr,
     funcs: Arc<BTreeMap<String, JsonRpcFn>>,
+    threads: Option<usize>,
 }
 
 impl Server {
-    pub fn new(addr: SocketAddr, funcs: BTreeMap<String, RpcFn<Json>>) -> Self {
+    pub fn new(addr: SocketAddr, funcs: BTreeMap<String, JsonRpcFn>) -> Self {
         Server {
             addr,
             funcs: Arc::new(funcs),
+            threads: None,
+        }
+    }
+
+    pub fn new_pooled(addr: SocketAddr,
+                      funcs: BTreeMap<String, JsonRpcFn>,
+                      threads: usize)
+                      -> Self {
+        Server {
+            addr,
+            funcs: Arc::new(funcs),
+            threads: Some(threads),
         }
     }
 
