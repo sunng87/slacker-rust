@@ -23,7 +23,6 @@ use tio::codec::Framed;
 use tcore::net::TcpStream;
 use tcore::reactor::Handle;
 use futures::{Future, BoxFuture};
-use futures_cpupool::CpuPool;
 use tservice::Service;
 use serde_json::value::Value as Json;
 
@@ -38,6 +37,7 @@ use codecs::*;
 use service::*;
 
 pub type JsonRpcFn = RpcFn<Json>;
+pub type JsonRpcFnSync = RpcFnSync<Json>;
 
 struct JsonSlacker;
 
@@ -56,7 +56,6 @@ impl ServerProto<TcpStream> for JsonSlacker {
 pub struct Server {
     addr: SocketAddr,
     funcs: Arc<BTreeMap<String, JsonRpcFn>>,
-    threads: Option<usize>,
 }
 
 impl Server {
@@ -64,23 +63,32 @@ impl Server {
         Server {
             addr,
             funcs: Arc::new(funcs),
-            threads: None,
-        }
-    }
-
-    pub fn new_pooled(addr: SocketAddr,
-                      funcs: BTreeMap<String, JsonRpcFn>,
-                      threads: usize)
-                      -> Self {
-        Server {
-            addr,
-            funcs: Arc::new(funcs),
-            threads: Some(threads),
         }
     }
 
     pub fn serve(&self) {
         let new_service = NewSlackerService(self.funcs.clone());
+        TcpServer::new(JsonSlacker, self.addr).serve(new_service);
+    }
+}
+
+pub struct ThreadPoolServer {
+    addr: SocketAddr,
+    funcs: Arc<BTreeMap<String, JsonRpcFnSync>>,
+    threads: usize,
+}
+
+impl ThreadPoolServer {
+    pub fn new(addr: SocketAddr, funcs: BTreeMap<String, JsonRpcFnSync>, threads: usize) -> Self {
+        ThreadPoolServer {
+            addr,
+            funcs: Arc::new(funcs),
+            threads,
+        }
+    }
+
+    pub fn serve(&self) {
+        let new_service = NewSlackerServiceSync(self.funcs.clone(), self.threads);
         TcpServer::new(JsonSlacker, self.addr).serve(new_service);
     }
 }

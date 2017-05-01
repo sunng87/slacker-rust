@@ -11,7 +11,7 @@ use tservice::{NewService, Service};
 use packets::*;
 
 pub type RpcFn<T> = Box<Fn(&Vec<T>) -> Receiver<T> + Send + Sync + 'static>;
-pub type RpcFnSync<T> = Box<Fn(&Vec<T>) -> T + Send + Sync + 'static>;
+pub type RpcFnSync<T> = Arc<Fn(&Vec<T>) -> T + Send + Sync + 'static>;
 
 pub struct SlackerService<T>
     where T: Send + Sync + 'static
@@ -70,10 +70,26 @@ impl<T> Service for SlackerService<T>
     }
 }
 
+pub struct NewSlackerService<T>(pub Arc<BTreeMap<String, RpcFn<T>>>) where T: Send + Sync + 'static;
+
+impl<T> NewService for NewSlackerService<T>
+    where T: Send + Sync + 'static
+{
+    type Request = SlackerPacket<T>;
+    type Response = SlackerPacket<T>;
+    type Error = io::Error;
+    type Instance = SlackerService<T>;
+
+    fn new_service(&self) -> io::Result<Self::Instance> {
+        Ok(SlackerService::new(self.0.clone()))
+    }
+}
+
 pub struct SlackerServiceSync<T>
     where T: Send + Sync + 'static
 {
     functions: Arc<BTreeMap<String, RpcFnSync<T>>>,
+    threads: usize,
     pool: CpuPool,
 }
 
@@ -84,7 +100,11 @@ impl<T> SlackerServiceSync<T>
                threads: usize)
                -> SlackerServiceSync<T> {
         let pool = CpuPool::new(threads);
-        SlackerServiceSync { functions, pool }
+        SlackerServiceSync {
+            functions,
+            threads,
+            pool,
+        }
     }
 }
 
@@ -100,14 +120,12 @@ impl<T> Service for SlackerServiceSync<T>
         match req {
             SlackerPacket::Request(sreq) => {
                 debug!("getting request: {:?}", sreq.fname);
-                if let Some(_) = self.functions.get(&sreq.fname) {
+                if let Some(fi) = self.functions.get(&sreq.fname) {
+                    let f = fi.clone();
+
                     self.pool
-                        .spawn_fn(move || -> FutureResult<T, Self::Error> {
-                                      let f = self.functions.get(&sreq.fname).unwrap();
-                                      ok(f(&sreq.arguments))
-                                  })
-                        .and_then(move |result| {
-                            debug!("getting results");
+                        .spawn_fn(move || -> FutureResult<Self::Response, Self::Error> {
+                            let result = f(&sreq.arguments);
                             ok(SlackerPacket::Response(SlackerResponse {
                                                            version: sreq.version,
                                                            code: RESULT_CODE_SUCCESS,
@@ -116,7 +134,6 @@ impl<T> Service for SlackerServiceSync<T>
                                                            result: result,
                                                        }))
                         })
-                        .map_err(|_| io::Error::new(io::ErrorKind::Other, "Oneshot canceled"))
                         .boxed()
                 } else {
                     let error = SlackerError {
@@ -135,17 +152,18 @@ impl<T> Service for SlackerServiceSync<T>
     }
 }
 
-pub struct NewSlackerService<T>(pub Arc<BTreeMap<String, RpcFn<T>>>) where T: Send + Sync + 'static;
+pub struct NewSlackerServiceSync<T>(pub Arc<BTreeMap<String, RpcFnSync<T>>>, pub usize)
+    where T: Send + Sync + 'static;
 
-impl<T> NewService for NewSlackerService<T>
+impl<T> NewService for NewSlackerServiceSync<T>
     where T: Send + Sync + 'static
 {
     type Request = SlackerPacket<T>;
     type Response = SlackerPacket<T>;
     type Error = io::Error;
-    type Instance = SlackerService<T>;
+    type Instance = SlackerServiceSync<T>;
 
     fn new_service(&self) -> io::Result<Self::Instance> {
-        Ok(SlackerService::new(self.0.clone()))
+        Ok(SlackerServiceSync::new(self.0.clone(), self.1))
     }
 }
