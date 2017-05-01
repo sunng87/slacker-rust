@@ -7,6 +7,7 @@ extern crate tokio_core as tcore;
 extern crate tokio_proto as tproto;
 extern crate tokio_service as tservice;
 extern crate futures;
+extern crate futures_cpupool;
 extern crate serde_json;
 extern crate bytes;
 extern crate byteorder;
@@ -36,6 +37,7 @@ use codecs::*;
 use service::*;
 
 pub type JsonRpcFn = RpcFn<Json>;
+pub type JsonRpcFnSync = RpcFnSync<Json>;
 
 struct JsonSlacker;
 
@@ -57,7 +59,7 @@ pub struct Server {
 }
 
 impl Server {
-    pub fn new(addr: SocketAddr, funcs: BTreeMap<String, RpcFn<Json>>) -> Self {
+    pub fn new(addr: SocketAddr, funcs: BTreeMap<String, JsonRpcFn>) -> Self {
         Server {
             addr,
             funcs: Arc::new(funcs),
@@ -66,6 +68,27 @@ impl Server {
 
     pub fn serve(&self) {
         let new_service = NewSlackerService(self.funcs.clone());
+        TcpServer::new(JsonSlacker, self.addr).serve(new_service);
+    }
+}
+
+pub struct ThreadPoolServer {
+    addr: SocketAddr,
+    funcs: Arc<BTreeMap<String, JsonRpcFnSync>>,
+    threads: usize,
+}
+
+impl ThreadPoolServer {
+    pub fn new(addr: SocketAddr, funcs: BTreeMap<String, JsonRpcFnSync>, threads: usize) -> Self {
+        ThreadPoolServer {
+            addr,
+            funcs: Arc::new(funcs),
+            threads,
+        }
+    }
+
+    pub fn serve(&self) {
+        let new_service = NewSlackerServiceSync(self.funcs.clone(), self.threads);
         TcpServer::new(JsonSlacker, self.addr).serve(new_service);
     }
 }
