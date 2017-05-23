@@ -7,16 +7,17 @@ pub struct SlackerPacketHeader {
     pub packet_type: u8,
 }
 
-named!(parse_slacker_header<SlackerPacketHeader>,
-       chain!( v: be_u8 ~
-               t: be_i32 ~
-               p: be_u8 , || {
-                   SlackerPacketHeader {
-                       version: v,
-                       serial_id: t,
-                       packet_type: p
-                   }
-               }));
+named!(slacker_header<SlackerPacketHeader>,
+       do_parse!( v: be_u8 >>
+                  t: be_i32 >>
+                  p: be_u8 >>
+                  (
+                      SlackerPacketHeader {
+                          version: v,
+                          serial_id: t,
+                          packet_type: p
+                      }
+                  )));
 
 #[derive(Debug)]
 pub struct SlackerRequestPacket<'a> {
@@ -71,81 +72,93 @@ pub enum SlackerPacketBody<'a> {
 }
 
 
-named!(parse_slacker_request<SlackerPacketBody>,
-       chain!( ct: be_u8 ~
-               fname_len: be_u16 ~
-               fname: take_str!(fname_len) ~
-               args_len: be_u32 ~
-               args: take!(args_len) , || {
-                   SlackerPacketBody::Request(
-                       SlackerRequestPacket {
-                           content_type: ct,
-                           fname: fname,
-                           arguments: args
-                       })
-               }));
+named!(slacker_request <&[u8], SlackerPacketBody>,
+       do_parse!( ct: be_u8 >>
+                  fname_len: be_u16 >>
+                  fname: take_str!(fname_len) >>
+                  args_len: be_u32 >>
+                  args: take!(args_len) >>
+                  (
+                      SlackerPacketBody::Request(
+                          SlackerRequestPacket {
+                              content_type: ct,
+                              fname: fname,
+                              arguments: args
+                          }
+                      )
+                  )));
 
 
-named!(parse_slacker_response<SlackerPacketBody>,
-       chain!(ct: be_u8 ~
-              rt: be_u8 ~
-              data_len: be_u32 ~
-              data: take!(data_len), || {
-                  SlackerPacketBody::Response(
-                      SlackerResponsePacket {
-                          content_type: ct,
-                          result_code: rt,
-                          data: data
-                      })
-              }));
+named!(slacker_response <&[u8], SlackerPacketBody>,
+       do_parse!(ct: be_u8 >>
+                 rt: be_u8 >>
+                 data_len: be_u32 >>
+                 data: take!(data_len) >>
+                 (
+                     SlackerPacketBody::Response(
+                         SlackerResponsePacket {
+                             content_type: ct,
+                             result_code: rt,
+                             data: data
+                         })
+                 )));
 
-named!(parse_slacker_error<SlackerPacketBody>,
-       chain!(rt: be_u8, || {
-           SlackerPacketBody::Error(
-               SlackerErrorPacket {
-                   result_code: rt
-               })
-       }));
+named!(slacker_error <&[u8], SlackerPacketBody>,
+       do_parse!(rt: be_u8 >>
+                 (
+                     SlackerPacketBody::Error(
+                         SlackerErrorPacket {
+                             result_code: rt
+                         }
+                     )
+                 )
+       ));
 
-named!(parse_slacker_inspect_req<SlackerPacketBody>,
-       chain!(it: be_u8 ~
-              data_len: be_u16 ~
-              data: take_str!(data_len), || {
-                  SlackerPacketBody::InspectRequest(
-                      SlackerInspectRequestPacket {
-                          inspect_type: it,
-                          data: data
-                      })
-              }));
+named!(slacker_inspect_req <&[u8], SlackerPacketBody>,
+       do_parse!(it: be_u8 >>
+                 data_len: be_u16 >>
+                 data: take_str!(data_len) >>
+                 (
+                     SlackerPacketBody::InspectRequest(
+                         SlackerInspectRequestPacket {
+                             inspect_type: it,
+                             data: data
+                         }
+                     )
+                 )));
 
-named!(parse_slacker_inspect_resp<SlackerPacketBody>,
-       chain!(data_len: be_u16 ~
-              data: take_str!(data_len), || {
-                  SlackerPacketBody::InspectResponse(
-                      SlackerInspectResponsePacket {
-                          data: data
-                      })
-              }));
+named!(slacker_inspect_resp <&[u8], SlackerPacketBody>,
+       do_parse!(data_len: be_u16 >>
+                 data: take_str!(data_len) >>
+                 (
+                     SlackerPacketBody::InspectResponse(
+                         SlackerInspectResponsePacket {
+                             data: data
+                         })
+                 )
+       ));
 
-named!(parse_slacker_interrupt<SlackerPacketBody>,
-       chain!(req_id: be_i32, || {
-           SlackerPacketBody::Interrupt(
-               SlackerInterruptPacket {
-                   req_id: req_id
-               })
-       }));
+named!(slacker_interrupt <&[u8], SlackerPacketBody>,
+       do_parse!(req_id: be_i32 >>
+                 (
+                     SlackerPacketBody::Interrupt(
+                         SlackerInterruptPacket {
+                             req_id: req_id
+                         })
+                 )
+       ));
 
 pub fn parse_slacker_body(i: &[u8], hdr: SlackerPacketHeader) -> IResult<&[u8], SlackerPacketBody> {
-    chain!(i,
-           body: switch!(value!(hdr.packet_type),
-                         0 => call!(parse_slacker_request) |
-                         1 => call!(parse_slacker_response) | 
-                         2 => value!(SlackerPacketBody::Ping) |
-                         3 => value!(SlackerPacketBody::Pong) |
-                         4 => call!(parse_slacker_error) |
-                         7 => call!(parse_slacker_inspect_req) |
-                         8 => call!(parse_slacker_inspect_resp) |
-                         9 => call!(parse_slacker_interrupt)),
-           || { body }
+    do_parse!(i,
+              body: switch!(value!(hdr.packet_type),
+                            0 => call!(slacker_request) |
+                            1 => call!(slacker_response) | 
+                            2 => value!(SlackerPacketBody::Ping) |
+                            3 => value!(SlackerPacketBody::Pong) |
+                            4 => call!(slacker_error) |
+                            7 => call!(slacker_inspect_req) |
+                            8 => call!(slacker_inspect_resp) |
+                            9 => call!(slacker_interrupt)) >>
+              ( body )
     )
 }
