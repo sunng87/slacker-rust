@@ -1,4 +1,4 @@
-use nom::{be_u8, be_u16, be_u32, be_i32, IResult};
+use nom::{be_u8, be_u16, be_u32, be_i32};
 
 #[derive(Debug)]
 pub struct SlackerPacketHeader {
@@ -37,26 +37,26 @@ pub struct SlackerResponsePacket<'a> {
 
 #[derive(Debug)]
 pub struct SlackerErrorPacket {
-    pub result_code: u8
+    pub result_code: u8,
 }
 
 
 #[derive(Debug)]
 pub struct SlackerInspectRequestPacket<'a> {
     pub inspect_type: u8,
-    pub data: &'a str
+    pub data: &'a str,
 }
 
 
 #[derive(Debug)]
 pub struct SlackerInspectResponsePacket<'a> {
-    pub data: &'a str
+    pub data: &'a str,
 }
 
-   
+
 #[derive(Debug)]
 pub struct SlackerInterruptPacket {
-    pub req_id: i32
+    pub req_id: i32,
 }
 
 #[derive(Debug)]
@@ -68,7 +68,7 @@ pub enum SlackerPacketBody<'a> {
     InspectResponse(SlackerInspectResponsePacket<'a>),
     Interrupt(SlackerInterruptPacket),
     Ping,
-    Pong
+    Pong,
 }
 
 
@@ -148,17 +148,16 @@ named!(slacker_interrupt <&[u8], SlackerPacketBody>,
                  )
        ));
 
-pub fn parse_slacker_body(i: &[u8], hdr: SlackerPacketHeader) -> IResult<&[u8], SlackerPacketBody> {
-    do_parse!(i,
-              body: switch!(value!(hdr.packet_type),
-                            0 => call!(slacker_request) |
-                            1 => call!(slacker_response) | 
-                            2 => value!(SlackerPacketBody::Ping) |
-                            3 => value!(SlackerPacketBody::Pong) |
-                            4 => call!(slacker_error) |
-                            7 => call!(slacker_inspect_req) |
-                            8 => call!(slacker_inspect_resp) |
-                            9 => call!(slacker_interrupt)) >>
-              ( body )
-    )
-}
+named!(slacker_all <&[u8], (SlackerPacketHeader, SlackerPacketBody)>,
+       do_parse!(header: slacker_header >>
+                 body: switch!(value!(header.packet_type),
+                               0 => call!(slacker_request) |
+                               1 => call!(slacker_response) |
+                               2 => value!(SlackerPacketBody::Ping) |
+                               3 => value!(SlackerPacketBody::Pong) |
+                               4 => call!(slacker_error) |
+                               7 => call!(slacker_inspect_req) |
+                               8 => call!(slacker_inspect_resp) |
+                               9 => call!(slacker_interrupt)) >>
+                 ((header, body))
+       ));
