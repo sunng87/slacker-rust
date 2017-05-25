@@ -71,7 +71,6 @@ pub enum SlackerPacketBody<'a> {
     Pong,
 }
 
-
 named!(slacker_request <&[u8], SlackerPacketBody>,
        do_parse!( ct: be_u8 >>
                   fname_len: be_u16 >>
@@ -148,7 +147,11 @@ named!(slacker_interrupt <&[u8], SlackerPacketBody>,
                  )
        ));
 
-named!(slacker_all <&[u8], (SlackerPacketHeader, SlackerPacketBody)>,
+#[derive(Debug)]
+pub struct SlackerPacket<'a>(SlackerPacketHeader, SlackerPacketBody<'a>);
+
+
+named!(pub slacker_all <&[u8], SlackerPacket>,
        do_parse!(header: slacker_header >>
                  body: switch!(value!(header.packet_type),
                                0 => call!(slacker_request) |
@@ -159,5 +162,5 @@ named!(slacker_all <&[u8], (SlackerPacketHeader, SlackerPacketBody)>,
                                7 => call!(slacker_inspect_req) |
                                8 => call!(slacker_inspect_resp) |
                                9 => call!(slacker_interrupt)) >>
-                 ((header, body))
+                 (SlackerPacket(header, body))
        ));
