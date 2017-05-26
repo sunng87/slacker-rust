@@ -20,17 +20,17 @@ named!(slacker_header<SlackerPacketHeader>,
                   )));
 
 #[derive(Debug)]
-pub struct SlackerRequestPacket<'a> {
+pub struct SlackerRequestPacket {
     pub content_type: u8,
-    pub fname: &'a str,
-    pub arguments: &'a [u8],
+    pub fname: String,
+    pub arguments: Vec<u8>,
 }
 
 #[derive(Debug)]
-pub struct SlackerResponsePacket<'a> {
+pub struct SlackerResponsePacket {
     pub content_type: u8,
     pub result_code: u8,
-    pub data: &'a [u8],
+    pub data: Vec<u8>,
 }
 
 
@@ -42,15 +42,15 @@ pub struct SlackerErrorPacket {
 
 
 #[derive(Debug)]
-pub struct SlackerInspectRequestPacket<'a> {
+pub struct SlackerInspectRequestPacket {
     pub inspect_type: u8,
-    pub data: &'a str,
+    pub data: Vec<u8>,
 }
 
 
 #[derive(Debug)]
-pub struct SlackerInspectResponsePacket<'a> {
-    pub data: &'a str,
+pub struct SlackerInspectResponsePacket {
+    pub data: Vec<u8>,
 }
 
 
@@ -60,12 +60,12 @@ pub struct SlackerInterruptPacket {
 }
 
 #[derive(Debug)]
-pub enum SlackerPacketBody<'a> {
-    Request(SlackerRequestPacket<'a>),
-    Response(SlackerResponsePacket<'a>),
+pub enum SlackerPacketBody {
+    Request(SlackerRequestPacket),
+    Response(SlackerResponsePacket),
     Error(SlackerErrorPacket),
-    InspectRequest(SlackerInspectRequestPacket<'a>),
-    InspectResponse(SlackerInspectResponsePacket<'a>),
+    InspectRequest(SlackerInspectRequestPacket),
+    InspectResponse(SlackerInspectResponsePacket),
     Interrupt(SlackerInterruptPacket),
     Ping,
     Pong,
@@ -81,8 +81,8 @@ named!(slacker_request <&[u8], SlackerPacketBody>,
                       SlackerPacketBody::Request(
                           SlackerRequestPacket {
                               content_type: ct,
-                              fname: fname,
-                              arguments: args
+                              fname: fname.to_owned(),
+                              arguments: args.into()
                           }
                       )
                   )));
@@ -98,7 +98,7 @@ named!(slacker_response <&[u8], SlackerPacketBody>,
                          SlackerResponsePacket {
                              content_type: ct,
                              result_code: rt,
-                             data: data
+                             data: data.into()
                          })
                  )));
 
@@ -116,23 +116,23 @@ named!(slacker_error <&[u8], SlackerPacketBody>,
 named!(slacker_inspect_req <&[u8], SlackerPacketBody>,
        do_parse!(it: be_u8 >>
                  data_len: be_u16 >>
-                 data: take_str!(data_len) >>
+                 data: take!(data_len) >>
                  (
                      SlackerPacketBody::InspectRequest(
                          SlackerInspectRequestPacket {
                              inspect_type: it,
-                             data: data
+                             data: data.into()
                          }
                      )
                  )));
 
 named!(slacker_inspect_resp <&[u8], SlackerPacketBody>,
        do_parse!(data_len: be_u16 >>
-                 data: take_str!(data_len) >>
+                 data: take!(data_len) >>
                  (
                      SlackerPacketBody::InspectResponse(
                          SlackerInspectResponsePacket {
-                             data: data
+                             data: data.into()
                          })
                  )
        ));
@@ -148,7 +148,7 @@ named!(slacker_interrupt <&[u8], SlackerPacketBody>,
        ));
 
 #[derive(Debug)]
-pub struct SlackerPacket<'a>(SlackerPacketHeader, SlackerPacketBody<'a>);
+pub struct SlackerPacket(pub SlackerPacketHeader, pub SlackerPacketBody);
 
 
 named!(pub slacker_all <&[u8], SlackerPacket>,
