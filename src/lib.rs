@@ -10,14 +10,16 @@ extern crate tokio_proto as tproto;
 extern crate tokio_service as tservice;
 extern crate futures;
 extern crate futures_cpupool;
+extern crate serde;
 extern crate serde_json;
 extern crate bytes;
 extern crate byteorder;
 
-mod packets;
+//mod packets;
 mod codecs;
 mod parser;
 mod service;
+mod serializer;
 
 use tproto::{TcpClient, TcpServer};
 use tproto::multiplex::{ClientProto, ServerProto, ClientService};
@@ -35,7 +37,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicIsize, Ordering};
 use std::net::SocketAddr;
 
-use packets::*;
+//use packets::*;
 use codecs::*;
 use service::*;
 

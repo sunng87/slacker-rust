@@ -1,6 +1,12 @@
 use nom::{be_u8, be_u16, be_u32, be_i32};
 
-#[derive(Debug)]
+pub static PROTOCOL_VERSION: u8 = 5;
+pub static RESULT_CODE_SUCCESS: u8 = 0;
+pub static RESULT_CODE_NOT_FOUND: u8 = 11;
+
+pub static JSON_CONTENT_TYPE: u8 = 1;
+
+#[derive(Debug, Copy)]
 pub struct SlackerPacketHeader {
     pub version: u8,
     pub serial_id: i32,
