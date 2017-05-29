@@ -6,7 +6,7 @@ pub static RESULT_CODE_NOT_FOUND: u8 = 11;
 
 pub static JSON_CONTENT_TYPE: u8 = 1;
 
-#[derive(Debug, Copy)]
+#[derive(Debug, Copy, Clone)]
 pub struct SlackerPacketHeader {
     pub version: u8,
     pub serial_id: i32,
@@ -155,7 +155,6 @@ named!(slacker_interrupt <&[u8], SlackerPacketBody>,
 
 #[derive(Debug)]
 pub struct SlackerPacket(pub SlackerPacketHeader, pub SlackerPacketBody);
-
 
 named!(pub slacker_all <&[u8], SlackerPacket>,
        do_parse!(header: slacker_header >>
