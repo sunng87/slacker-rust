@@ -21,14 +21,14 @@ pub struct SlackerService<T>
     where T: Serialize + Send + Sync + 'static
 {
     functions: Arc<BTreeMap<String, RpcFn<T>>>,
-    serializer: Box<Serializer<Format = T>>,
+    serializer: Arc<Serializer<Format = T>>,
 }
 
 impl<T> SlackerService<T>
-    where T: Serialize + Send + Sync + 'static
+    where T: Serialize + Send + Sync
 {
     pub fn new(functions: Arc<BTreeMap<String, RpcFn<T>>>,
-               serializer: Box<Serializer<Format = T>>)
+               serializer: Arc<Serializer<Format = T>>)
                -> SlackerService<T> {
         SlackerService {
             functions,
@@ -38,8 +38,7 @@ impl<T> SlackerService<T>
 }
 
 impl<T> Service for SlackerService<T>
-    where T: Serialize + Send + Sync + 'static
-{
+    where T: Serialize + Send + Sync {
     type Request = SlackerPacket;
     type Response = SlackerPacket;
     type Error = io::Error;
@@ -51,24 +50,23 @@ impl<T> Service for SlackerService<T>
             SlackerPacketBody::Request(sreq) => {
                 debug!("getting request: {:?}", sreq.fname);
                 if let Some(f) = self.functions.get(&sreq.fname) {
-                    if let Some(args) = self.serializer.deserialize_vec(&sreq.arguments) {
+                    let s = self.serializer;
+                    if let Some(args) = s.deserialize_vec(&sreq.arguments) {
                         f(&args)
+                            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Oneshot canceled"))
                             .and_then(move |r| {
                                 debug!("getting results");
-                                self.serializer
-                                    .serialize(&r)
-                                    .ok_or(err(io::Error::new(io::ErrorKind::Other, "Unsupport")))
-                                    .map(|result| {
-                                        SlackerPacket(header,
+                                if let Some(result) = s.serialize(&r) {
+                                    ok(SlackerPacket(header,
                                                       SlackerPacketBody::Response(SlackerResponsePacket {
                                                           result_code: RESULT_CODE_SUCCESS,
                                                           content_type: sreq.content_type,
                                                           data: result,
-                                                      }))
-                                    }).into()
-                            })
-                            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Oneshot canceled"))
-                            .boxed()
+                                                      })))
+                                } else {
+                                    err(io::Error::new(io::ErrorKind::Other, "Unsupport"))
+                                }
+                            }).boxed()
                     } else {
                         err(io::Error::new(io::ErrorKind::Other, "Unsupported content type"))
                             .boxed()
@@ -76,10 +74,10 @@ impl<T> Service for SlackerService<T>
                 } else {
                     ok(SlackerPacket(header,
                                      SlackerPacketBody::Error(SlackerErrorPacket {
-                                                                  result_code:
-                                                                      RESULT_CODE_NOT_FOUND,
-                                                              })))
-                            .boxed()
+                                         result_code:
+                                         RESULT_CODE_NOT_FOUND,
+                                     })))
+                        .boxed()
                 }
             }
             SlackerPacketBody::Ping => ok(SlackerPacket(header, SlackerPacketBody::Pong)).boxed(),
@@ -88,7 +86,7 @@ impl<T> Service for SlackerService<T>
     }
 }
 
-pub struct NewSlackerService<T>(pub Arc<BTreeMap<String, RpcFn<T>>>)
+pub struct NewSlackerService<T>(pub Arc<BTreeMap<String, RpcFn<T>>>, pub Arc<Serializer<Format = T>>)
     where T: Serialize + Send + Sync + 'static;
 
 impl<T> NewService for NewSlackerService<T>
@@ -100,7 +98,7 @@ impl<T> NewService for NewSlackerService<T>
     type Instance = SlackerService<T>;
 
     fn new_service(&self) -> io::Result<Self::Instance> {
-        Ok(SlackerService::new(self.0.clone()))
+        Ok(SlackerService::new(self.0.clone(), self.1.clone()))
     }
 }
 
@@ -108,6 +106,7 @@ pub struct SlackerServiceSync<T>
     where T: Send + Sync + 'static
 {
     functions: Arc<BTreeMap<String, RpcFnSync<T>>>,
+    serializer: Arc<Serializer<Format = T>>,
     threads: usize,
     pool: CpuPool,
 }
@@ -116,11 +115,13 @@ impl<T> SlackerServiceSync<T>
     where T: Send + Sync + 'static
 {
     pub fn new(functions: Arc<BTreeMap<String, RpcFnSync<T>>>,
+               serializer: Arc<Serializer<Format = T>>,
                threads: usize)
                -> SlackerServiceSync<T> {
         let pool = CpuPool::new(threads);
         SlackerServiceSync {
             functions,
+            serializer,
             threads,
             pool,
         }
@@ -142,36 +143,24 @@ impl<T> Service for SlackerServiceSync<T>
                 debug!("getting request: {:?}", sreq.fname);
                 if let Some(fi) = self.functions.get(&sreq.fname) {
                     let f = fi.clone();
-
-                    // TODO: error packet
-                    let s = try!(self.serializers
-                                     .get(sreq.content_type)
-                                     .ok()
-                                     .map_err(|e| {
-                                                  io::Error::new(io::ErrorKind::Other,
-                                                                 "Unsupported content type")
-                                              }));
+                    let s = self.serializer;
 
                     self.pool
-                        .spawn_fn(move || -> FutureResult<Self::Response, Self::Error> {
-                            s.deserialize(&sreq.arguments)
-                                .and_then(f)
-                                .and_then(s.serialize)
-                                .and_then(move |result| {
+                        .spawn_fn(move || -> Result<Self::Response, Self::Error> {
+                            s.deserialize_vec(&sreq.arguments)
+                                .and_then(|v| Some(f(&v)))
+                                .and_then(|v| s.serialize(&v))
+                                .map(move |result| {
                                     debug!("getting results");
-                                    ok(SlackerPacket(header,
-                                             SlackerPacketBody::Response(SlackerResponsePacket {
-                                                 result_code: RESULT_CODE_SUCCESS,
-                                                 content_type: sreq.content_type,
-                                                 data: result,
-                                             })))
+                                    SlackerPacket(header,
+                                                  SlackerPacketBody::Response(SlackerResponsePacket {
+                                                      result_code: RESULT_CODE_SUCCESS,
+                                                      content_type: sreq.content_type,
+                                                      data: result,
+                                                  }))
                                 })
-                                .map_err(|_| {
-                                             io::Error::new(io::ErrorKind::Other,
-                                                            "Oneshot canceled")
-                                         })
-                                .boxed()
-                        })
+                                .ok_or(io::Error::new(io::ErrorKind::Other, "Unsupport"))
+                        }).boxed()
                 } else {
                     ok(SlackerPacket(header,
                                      SlackerPacketBody::Error(SlackerErrorPacket {
@@ -187,7 +176,7 @@ impl<T> Service for SlackerServiceSync<T>
     }
 }
 
-pub struct NewSlackerServiceSync<T>(pub Arc<BTreeMap<String, RpcFnSync<T>>>, pub usize)
+pub struct NewSlackerServiceSync<T>(pub Arc<BTreeMap<String, RpcFnSync<T>>>, pub Arc<Serializer<Format=T>>, pub usize)
     where T: Send + Sync + 'static;
 
 impl<T> NewService for NewSlackerServiceSync<T>
@@ -199,6 +188,6 @@ impl<T> NewService for NewSlackerServiceSync<T>
     type Instance = SlackerServiceSync<T>;
 
     fn new_service(&self) -> io::Result<Self::Instance> {
-        Ok(SlackerServiceSync::new(self.0.clone(), self.1))
+        Ok(SlackerServiceSync::new(self.0.clone(), self.1.clone(), self.2))
     }
 }
