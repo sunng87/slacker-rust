@@ -2,9 +2,9 @@ use nom::IResult;
 use bytes::{BytesMut, BufMut, Writer};
 use tio::codec::{Encoder, Decoder};
 use tproto::multiplex::RequestId;
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, WriteBytesExt};
 
-use std::io::{self, Read, Write, ErrorKind};
+use std::io::{self, Write, ErrorKind};
 
 //use packets::*;
 use parser::*;
@@ -58,6 +58,9 @@ impl Encoder for SlackerCodec {
             }
             SlackerPacketBody::InspectResponse(ref resp) => {
                 try!(write_bytes(&mut buf, &resp.data, 2));
+            }
+            SlackerPacketBody::Interrupt(ref req) => {
+                try!(buf.write_i32::<BigEndian>(req.req_id));
             }
         }
         Ok(())

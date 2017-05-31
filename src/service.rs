@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use futures::Future;
-use futures::future::{ok, err, BoxFuture, FutureResult};
+use futures::future::{ok, err, BoxFuture};
 use futures::sync::oneshot::Receiver;
 use futures_cpupool::CpuPool;
 use tservice::{NewService, Service};
@@ -50,14 +50,17 @@ impl<T> Service for SlackerService<T>
             SlackerPacketBody::Request(sreq) => {
                 debug!("getting request: {:?}", sreq.fname);
                 if let Some(f) = self.functions.get(&sreq.fname) {
-                    let s = self.serializer;
+                    let s = self.serializer.clone();
                     if let Some(args) = s.deserialize_vec(&sreq.arguments) {
                         f(&args)
                             .map_err(|_| io::Error::new(io::ErrorKind::Other, "Oneshot canceled"))
                             .and_then(move |r| {
                                 debug!("getting results");
                                 if let Some(result) = s.serialize(&r) {
-                                    ok(SlackerPacket(header,
+                                    let mut resp_header = header.clone();
+                                    resp_header.packet_type = PACKET_TYPE_RESPONSE;
+
+                                    ok(SlackerPacket(resp_header,
                                                       SlackerPacketBody::Response(SlackerResponsePacket {
                                                           result_code: RESULT_CODE_SUCCESS,
                                                           content_type: sreq.content_type,
@@ -80,7 +83,11 @@ impl<T> Service for SlackerService<T>
                         .boxed()
                 }
             }
-            SlackerPacketBody::Ping => ok(SlackerPacket(header, SlackerPacketBody::Pong)).boxed(),
+            SlackerPacketBody::Ping => {
+                let mut resp_header = header.clone();
+                resp_header.packet_type = PACKET_TYPE_PONG;
+                ok(SlackerPacket(resp_header, SlackerPacketBody::Pong)).boxed()
+            }
             _ => err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported packet")).boxed(),
         }
     }
@@ -143,7 +150,7 @@ impl<T> Service for SlackerServiceSync<T>
                 debug!("getting request: {:?}", sreq.fname);
                 if let Some(fi) = self.functions.get(&sreq.fname) {
                     let f = fi.clone();
-                    let s = self.serializer;
+                    let s = self.serializer.clone();
 
                     self.pool
                         .spawn_fn(move || -> Result<Self::Response, Self::Error> {
@@ -152,6 +159,8 @@ impl<T> Service for SlackerServiceSync<T>
                                 .and_then(|v| s.serialize(&v))
                                 .map(move |result| {
                                     debug!("getting results");
+                                    let mut resp_header = header.clone();
+                                    resp_header.packet_type = PACKET_TYPE_RESPONSE;
                                     SlackerPacket(header,
                                                   SlackerPacketBody::Response(SlackerResponsePacket {
                                                       result_code: RESULT_CODE_SUCCESS,
@@ -159,7 +168,7 @@ impl<T> Service for SlackerServiceSync<T>
                                                       data: result,
                                                   }))
                                 })
-                                .ok_or(io::Error::new(io::ErrorKind::Other, "Unsupport"))
+                                .ok_or(io::Error::new(io::ErrorKind::Other, "Unsupported"))
                         }).boxed()
                 } else {
                     ok(SlackerPacket(header,
@@ -170,7 +179,11 @@ impl<T> Service for SlackerServiceSync<T>
                             .boxed()
                 }
             }
-            SlackerPacketBody::Ping => ok(SlackerPacket(header, SlackerPacketBody::Pong)).boxed(),
+            SlackerPacketBody::Ping => {
+                let mut resp_header = header.clone();
+                resp_header.packet_type = PACKET_TYPE_PONG;
+                ok(SlackerPacket(header, SlackerPacketBody::Pong)).boxed()
+            }
             _ => err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported packet")).boxed(),
         }
     }
@@ -178,7 +191,7 @@ impl<T> Service for SlackerServiceSync<T>
 
 pub struct NewSlackerServiceSync<T>(pub Arc<BTreeMap<String, RpcFnSync<T>>>, pub Arc<Serializer<Format=T>>, pub usize)
     where T: Send + Sync + 'static;
-
+ 
 impl<T> NewService for NewSlackerServiceSync<T>
     where T: Send + Sync + 'static
 {

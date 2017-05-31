@@ -28,6 +28,7 @@ use tio::codec::Framed;
 use tcore::net::TcpStream;
 use tcore::reactor::Handle;
 use futures::{Future, BoxFuture};
+use futures::future::err;
 use tservice::Service;
 use serde_json::value::Value as Json;
 
@@ -39,6 +40,8 @@ use std::net::SocketAddr;
 
 //use packets::*;
 use codecs::*;
+use serializer::*;
+use parser::*;
 use service::*;
 
 pub type JsonRpcFn = RpcFn<Json>;
@@ -47,14 +50,14 @@ pub type JsonRpcFnSync = RpcFnSync<Json>;
 struct JsonSlacker;
 
 impl ServerProto<TcpStream> for JsonSlacker {
-    type Request = SlackerPacket<Json>;
-    type Response = SlackerPacket<Json>;
-    type Transport = Framed<TcpStream, JsonSlackerCodec>;
+    type Request = SlackerPacket;
+    type Response = SlackerPacket;
+    type Transport = Framed<TcpStream, SlackerCodec>;
     type BindTransport = io::Result<Self::Transport>;
 
     fn bind_transport(&self, io: TcpStream) -> Self::BindTransport {
         io.set_nodelay(true);
-        Ok(io.framed(JsonSlackerCodec))
+        Ok(io.framed(SlackerCodec))
     }
 }
 
@@ -72,7 +75,8 @@ impl Server {
     }
 
     pub fn serve(&self) {
-        let new_service = NewSlackerService(self.funcs.clone());
+        let serializer = Arc::new(JsonSerializer);
+        let new_service = NewSlackerService(self.funcs.clone(), serializer);
         TcpServer::new(JsonSlacker, self.addr).serve(new_service);
     }
 }
@@ -93,31 +97,34 @@ impl ThreadPoolServer {
     }
 
     pub fn serve(&self) {
-        let new_service = NewSlackerServiceSync(self.funcs.clone(), self.threads);
+        let serializer = Arc::new(JsonSerializer);
+        let new_service = NewSlackerServiceSync(self.funcs.clone(), serializer, self.threads);
         TcpServer::new(JsonSlacker, self.addr).serve(new_service);
     }
 }
 
 impl ClientProto<TcpStream> for JsonSlacker {
-    type Request = SlackerPacket<Json>;
-    type Response = SlackerPacket<Json>;
-    type Transport = Framed<TcpStream, JsonSlackerCodec>;
+    type Request = SlackerPacket;
+    type Response = SlackerPacket;
+    type Transport = Framed<TcpStream, SlackerCodec>;
     type BindTransport = io::Result<Self::Transport>;
 
     fn bind_transport(&self, io: TcpStream) -> Self::BindTransport {
         io.set_nodelay(true);
-        Ok(io.framed(JsonSlackerCodec))
+        Ok(io.framed(SlackerCodec))
     }
 }
 
 pub struct Client {
     inner: ClientService<TcpStream, JsonSlacker>,
     serial_id_gen: AtomicIsize,
+    // TODO: this can be reused
+    serializer: Arc<JsonSerializer>,
 }
 
 impl Service for Client {
-    type Request = SlackerPacket<Json>;
-    type Response = SlackerPacket<Json>;
+    type Request = SlackerPacket;
+    type Response = SlackerPacket;
     type Error = io::Error;
     type Future = BoxFuture<Self::Response, Self::Error>;
 
@@ -136,6 +143,7 @@ impl Client {
                      Client {
                          inner: client_service,
                          serial_id_gen: AtomicIsize::new(0),
+                         serializer: Arc::new(JsonSerializer),
                      }
                  });
         Box::new(rt)
@@ -152,19 +160,30 @@ impl Client {
         fname.push_str(fn_name);
 
         let sid = self.serial_id_gen.fetch_add(1, Ordering::SeqCst) as i32;
+        let header = SlackerPacketHeader {
+            version: PROTOCOL_VERSION_5,
+            serial_id: sid,
+            packet_type: PACKET_TYPE_REQUEST,
+        };
 
-        let packet = SlackerPacket::Request(SlackerRequest {
-                                                version: PROTOCOL_VERSION,
-                                                serial_id: sid,
-                                                content_type: SlackerContentType::JSON,
-                                                fname: fname,
-                                                arguments: args,
-                                            });
-        self.call(packet)
-            .map(|t| match t {
-                     SlackerPacket::Response(r) => r.result,
-                     _ => Json::Null,
-                 })
-            .boxed()
+        let serializer = self.serializer.clone();
+        if let Some(serialized_args) = serializer.serialize(&args.into()) {
+            let packet = SlackerPacketBody::Request(SlackerRequestPacket {
+                                                        content_type: JSON_CONTENT_TYPE,
+                                                        fname: fname,
+                                                        arguments: serialized_args,
+                                                    });
+            self.call(SlackerPacket(header, packet))
+                .map(move |SlackerPacket(_, body)| match body {
+                         SlackerPacketBody::Response(r) => {
+                             serializer.deserialize(&r.data).unwrap_or(Json::Null)
+                         }
+                         _ => Json::Null,
+                     })
+                .boxed()
+
+        } else {
+            return err(io::Error::new(io::ErrorKind::Other, "Unsupported")).boxed();
+        }
     }
 }

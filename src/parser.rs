@@ -1,10 +1,20 @@
 use nom::{be_u8, be_u16, be_u32, be_i32};
 
-pub static PROTOCOL_VERSION: u8 = 5;
-pub static RESULT_CODE_SUCCESS: u8 = 0;
-pub static RESULT_CODE_NOT_FOUND: u8 = 11;
+pub const PROTOCOL_VERSION_5: u8 = 5;
+pub const RESULT_CODE_SUCCESS: u8 = 0;
+pub const RESULT_CODE_NOT_FOUND: u8 = 11;
 
-pub static JSON_CONTENT_TYPE: u8 = 1;
+pub const JSON_CONTENT_TYPE: u8 = 1;
+
+pub const PACKET_TYPE_REQUEST: u8 = 0;
+pub const PACKET_TYPE_RESPONSE: u8 = 1;
+pub const PACKET_TYPE_PING: u8 = 2;
+pub const PACKET_TYPE_PONG: u8 = 3;
+pub const PACKET_TYPE_ERROR: u8 = 4;
+pub const PACKET_TYPE_INSPECT_REQUEST: u8 = 7;
+pub const PACKET_TYPE_INSPECT_RESPONSE: u8 = 8;
+pub const PACKET_TYPE_INTERRUPT: u8 = 9;
+
 
 #[derive(Debug, Copy, Clone)]
 pub struct SlackerPacketHeader {
@@ -159,13 +169,13 @@ pub struct SlackerPacket(pub SlackerPacketHeader, pub SlackerPacketBody);
 named!(pub slacker_all <&[u8], SlackerPacket>,
        do_parse!(header: slacker_header >>
                  body: switch!(value!(header.packet_type),
-                               0 => call!(slacker_request) |
-                               1 => call!(slacker_response) |
-                               2 => value!(SlackerPacketBody::Ping) |
-                               3 => value!(SlackerPacketBody::Pong) |
-                               4 => call!(slacker_error) |
-                               7 => call!(slacker_inspect_req) |
-                               8 => call!(slacker_inspect_resp) |
-                               9 => call!(slacker_interrupt)) >>
+                               PACKET_TYPE_REQUEST => call!(slacker_request) |
+                               PACKET_TYPE_RESPONSE => call!(slacker_response) |
+                               PACKET_TYPE_PING => value!(SlackerPacketBody::Ping) |
+                               PACKET_TYPE_PONG => value!(SlackerPacketBody::Pong) |
+                               PACKET_TYPE_ERROR => call!(slacker_error) |
+                               PACKET_TYPE_INSPECT_REQUEST => call!(slacker_inspect_req) |
+                               PACKET_TYPE_INSPECT_RESPONSE => call!(slacker_inspect_resp) |
+                               PACKET_TYPE_INTERRUPT => call!(slacker_interrupt)) >>
                  (SlackerPacket(header, body))
        ));
