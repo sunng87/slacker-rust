@@ -1,4 +1,4 @@
-use nom::IResult;
+use nom::{IResult, Offset};
 use bytes::{BytesMut, BufMut, Writer};
 use tio::codec::{Encoder, Decoder};
 use tproto::multiplex::RequestId;
@@ -31,6 +31,7 @@ impl Encoder for SlackerCodec {
     type Error = io::Error;
 
     fn encode<'a>(&mut self, frame_in: Self::Item, buf0: &mut BytesMut) -> Result<(), Self::Error> {
+        debug!("writing: {:?}", frame_in);
         let (_, SlackerPacket(header, body)) = frame_in;
         let mut buf = buf0.writer();
         try!(buf.write_u8(header.version));
@@ -45,7 +46,7 @@ impl Encoder for SlackerCodec {
             }
             SlackerPacketBody::Response(ref resp) => {
                 try!(buf.write_u8(resp.content_type));
-                //                let serialized = serde_json::to_string(&resp.result).unwrap();
+                try!(buf.write_u8(resp.result_code));
                 try!(write_bytes(&mut buf, &resp.data, 4));
             }
             SlackerPacketBody::Error(ref resp) => {
@@ -72,15 +73,19 @@ impl Decoder for SlackerCodec {
     type Error = io::Error;
 
     fn decode(&mut self, buf: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
-        match slacker_all(buf.as_ref()) {
-            IResult::Done(_, out) => {
+        let (consumed, result) = match slacker_all(buf.as_ref()) {
+            IResult::Done(i, out) => {
                 let SlackerPacket(header, _) = out;
+                debug!("data in {:?}", header);
                 let request_id = header.serial_id;
-                Ok(Some((request_id as RequestId, out)))
-            }
-            IResult::Incomplete(_) => Ok(None),
-            IResult::Error(e) => Err(io::Error::new(ErrorKind::InvalidData, e)),
-        }
 
+                (buf.offset(i), Some((request_id as RequestId, out)))
+            }
+            IResult::Incomplete(_) => return Ok(None),
+            IResult::Error(e) => return Err(io::Error::new(ErrorKind::InvalidData, e)),
+        };
+
+        buf.split_to(consumed);
+        Ok(result)
     }
 }

@@ -174,12 +174,15 @@ impl Client {
                                                         arguments: serialized_args,
                                                     });
             self.call(SlackerPacket(header, packet))
-                .map(move |SlackerPacket(_, body)| match body {
-                         SlackerPacketBody::Response(r) => {
-                             serializer.deserialize(&r.data).unwrap_or(Json::Null)
-                         }
-                         _ => Json::Null,
-                     })
+                .map(move |SlackerPacket(_, body)| {
+                    debug!("getting results {:?}", body);
+                    match body {
+                        SlackerPacketBody::Response(r) => {
+                            serializer.deserialize(&r.data).unwrap_or(Json::Null)
+                        }
+                        _ => Json::Null,
+                    }
+                })
                 .boxed()
 
         } else {

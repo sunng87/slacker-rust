@@ -59,7 +59,7 @@ impl<T> Service for SlackerService<T>
                                 if let Some(result) = s.serialize(&r) {
                                     let mut resp_header = header.clone();
                                     resp_header.packet_type = PACKET_TYPE_RESPONSE;
-
+                                    debug!("sending results");
                                     ok(SlackerPacket(resp_header,
                                                       SlackerPacketBody::Response(SlackerResponsePacket {
                                                           result_code: RESULT_CODE_SUCCESS,
