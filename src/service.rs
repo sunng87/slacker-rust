@@ -2,7 +2,7 @@ use std::io;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use futures::Future;
+use futures::{IntoFuture, Future};
 use futures::future::{ok, err, BoxFuture};
 use futures::sync::oneshot::Receiver;
 use futures_cpupool::CpuPool;
@@ -10,7 +10,6 @@ use tservice::{NewService, Service};
 
 use serde::Serialize;
 
-//use packets::*;
 use parser::*;
 use serializer::*;
 
@@ -38,7 +37,8 @@ impl<T> SlackerService<T>
 }
 
 impl<T> Service for SlackerService<T>
-    where T: Serialize + Send + Sync {
+    where T: Serialize + Send + Sync
+{
     type Request = SlackerPacket;
     type Response = SlackerPacket;
     type Error = io::Error;
@@ -51,36 +51,36 @@ impl<T> Service for SlackerService<T>
                 debug!("getting request: {:?}", sreq.fname);
                 if let Some(f) = self.functions.get(&sreq.fname) {
                     let s = self.serializer.clone();
-                    if let Some(args) = s.deserialize_vec(&sreq.arguments) {
-                        f(&args)
-                            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Oneshot canceled"))
-                            .and_then(move |r| {
-                                debug!("getting results");
-                                if let Some(result) = s.serialize(&r) {
+                    match s.deserialize_vec(&sreq.arguments) {
+                        Ok(args) => {
+                            f(&args)
+                                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+                                .and_then(move |r| s.serialize(&r).into_future())
+                                .and_then(move |result| {
                                     let mut resp_header = header.clone();
                                     resp_header.packet_type = PACKET_TYPE_RESPONSE;
                                     debug!("sending results");
-                                    ok(SlackerPacket(resp_header,
-                                                      SlackerPacketBody::Response(SlackerResponsePacket {
-                                                          result_code: RESULT_CODE_SUCCESS,
-                                                          content_type: sreq.content_type,
-                                                          data: result,
-                                                      })))
-                                } else {
-                                    err(io::Error::new(io::ErrorKind::Other, "Unsupport"))
-                                }
-                            }).boxed()
-                    } else {
-                        err(io::Error::new(io::ErrorKind::Other, "Unsupported content type"))
-                            .boxed()
+                                    let body =
+                                        SlackerPacketBody::Response(SlackerResponsePacket {
+                                                                        result_code:
+                                                                            RESULT_CODE_SUCCESS,
+                                                                        content_type:
+                                                                            sreq.content_type,
+                                                                        data: result,
+                                                                    });
+                                    ok(SlackerPacket(resp_header, body))
+                                })
+                                .boxed()
+                        }
+                        Err(e) => err(e).boxed(),
                     }
                 } else {
                     ok(SlackerPacket(header,
                                      SlackerPacketBody::Error(SlackerErrorPacket {
-                                         result_code:
-                                         RESULT_CODE_NOT_FOUND,
-                                     })))
-                        .boxed()
+                                                                  result_code:
+                                                                      RESULT_CODE_NOT_FOUND,
+                                                              })))
+                            .boxed()
                 }
             }
             SlackerPacketBody::Ping => {
@@ -93,7 +93,8 @@ impl<T> Service for SlackerService<T>
     }
 }
 
-pub struct NewSlackerService<T>(pub Arc<BTreeMap<String, RpcFn<T>>>, pub Arc<Serializer<Format = T>>)
+pub struct NewSlackerService<T>(pub Arc<BTreeMap<String, RpcFn<T>>>,
+                                pub Arc<Serializer<Format = T>>)
     where T: Serialize + Send + Sync + 'static;
 
 impl<T> NewService for NewSlackerService<T>
@@ -110,7 +111,7 @@ impl<T> NewService for NewSlackerService<T>
 }
 
 pub struct SlackerServiceSync<T>
-    where T: Send + Sync + 'static
+    where T: Serialize + Send + Sync + 'static
 {
     functions: Arc<BTreeMap<String, RpcFnSync<T>>>,
     serializer: Arc<Serializer<Format = T>>,
@@ -119,7 +120,7 @@ pub struct SlackerServiceSync<T>
 }
 
 impl<T> SlackerServiceSync<T>
-    where T: Send + Sync + 'static
+    where T: Serialize + Send + Sync + 'static
 {
     pub fn new(functions: Arc<BTreeMap<String, RpcFnSync<T>>>,
                serializer: Arc<Serializer<Format = T>>,
@@ -136,7 +137,7 @@ impl<T> SlackerServiceSync<T>
 }
 
 impl<T> Service for SlackerServiceSync<T>
-    where T: Send + Sync + 'static
+    where T: Serialize + Send + Sync + 'static
 {
     type Request = SlackerPacket;
     type Response = SlackerPacket;
@@ -155,21 +156,24 @@ impl<T> Service for SlackerServiceSync<T>
                     self.pool
                         .spawn_fn(move || -> Result<Self::Response, Self::Error> {
                             s.deserialize_vec(&sreq.arguments)
-                                .and_then(|v| Some(f(&v)))
+                                .map(|v| f(&v))
                                 .and_then(|v| s.serialize(&v))
                                 .map(move |result| {
                                     debug!("getting results");
                                     let mut resp_header = header.clone();
                                     resp_header.packet_type = PACKET_TYPE_RESPONSE;
-                                    SlackerPacket(header,
-                                                  SlackerPacketBody::Response(SlackerResponsePacket {
-                                                      result_code: RESULT_CODE_SUCCESS,
-                                                      content_type: sreq.content_type,
-                                                      data: result,
-                                                  }))
+                                    let body =
+                                        SlackerPacketBody::Response(SlackerResponsePacket {
+                                                                        result_code:
+                                                                            RESULT_CODE_SUCCESS,
+                                                                        content_type:
+                                                                            sreq.content_type,
+                                                                        data: result,
+                                                                    });
+                                    SlackerPacket(header, body)
                                 })
-                                .ok_or(io::Error::new(io::ErrorKind::Other, "Unsupported"))
-                        }).boxed()
+                        })
+                        .boxed()
                 } else {
                     ok(SlackerPacket(header,
                                      SlackerPacketBody::Error(SlackerErrorPacket {
@@ -189,11 +193,13 @@ impl<T> Service for SlackerServiceSync<T>
     }
 }
 
-pub struct NewSlackerServiceSync<T>(pub Arc<BTreeMap<String, RpcFnSync<T>>>, pub Arc<Serializer<Format=T>>, pub usize)
-    where T: Send + Sync + 'static;
- 
+pub struct NewSlackerServiceSync<T>(pub Arc<BTreeMap<String, RpcFnSync<T>>>,
+                                    pub Arc<Serializer<Format = T>>,
+                                    pub usize)
+    where T: Serialize + Send + Sync + 'static;
+
 impl<T> NewService for NewSlackerServiceSync<T>
-    where T: Send + Sync + 'static
+    where T: Serialize + Send + Sync + 'static
 {
     type Request = SlackerPacket;
     type Response = SlackerPacket;

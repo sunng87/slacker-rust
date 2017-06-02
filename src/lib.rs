@@ -15,7 +15,6 @@ extern crate serde_json;
 extern crate bytes;
 extern crate byteorder;
 
-//mod packets;
 mod codecs;
 mod parser;
 mod service;
@@ -27,7 +26,7 @@ use tio::AsyncRead;
 use tio::codec::Framed;
 use tcore::net::TcpStream;
 use tcore::reactor::Handle;
-use futures::{Future, BoxFuture};
+use futures::{Future, IntoFuture, BoxFuture};
 use futures::future::err;
 use tservice::Service;
 use serde_json::value::Value as Json;
@@ -167,26 +166,32 @@ impl Client {
         };
 
         let serializer = self.serializer.clone();
-        if let Some(serialized_args) = serializer.serialize(&args.into()) {
-            let packet = SlackerPacketBody::Request(SlackerRequestPacket {
-                                                        content_type: JSON_CONTENT_TYPE,
-                                                        fname: fname,
-                                                        arguments: serialized_args,
-                                                    });
-            self.call(SlackerPacket(header, packet))
-                .map(move |SlackerPacket(_, body)| {
-                    debug!("getting results {:?}", body);
-                    match body {
-                        SlackerPacketBody::Response(r) => {
-                            serializer.deserialize(&r.data).unwrap_or(Json::Null)
+        let body_result = serializer
+            .serialize(&args.into())
+            .map(|serialized_args| {
+                     SlackerPacketBody::Request(SlackerRequestPacket {
+                                                    content_type: JSON_CONTENT_TYPE,
+                                                    fname: fname,
+                                                    arguments: serialized_args,
+                                                })
+                 });
+        match body_result {
+            Ok(body) => {
+                self.call(SlackerPacket(header, body))
+                    .and_then(move |SlackerPacket(_, body)| {
+                        debug!("getting results {:?}", body);
+                        match body {
+                            SlackerPacketBody::Response(r) => {
+                                serializer.deserialize(&r.data).into_future()
+                            }
+                            _ => {
+                                err(io::Error::new(io::ErrorKind::InvalidData, "Unexpect packet."))
+                            }
                         }
-                        _ => Json::Null,
-                    }
-                })
-                .boxed()
-
-        } else {
-            return err(io::Error::new(io::ErrorKind::Other, "Unsupported")).boxed();
+                    })
+                    .boxed()
+            }
+            Err(e) => err(e).boxed(),
         }
     }
 }
