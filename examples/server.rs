@@ -1,5 +1,7 @@
 #[macro_use]
 extern crate log;
+#[macro_use]
+extern crate maplit;
 
 extern crate slacker;
 extern crate serde_json;
@@ -9,8 +11,6 @@ extern crate env_logger;
 use futures::{oneshot, Oneshot};
 use serde_json::value::Value as Json;
 use slacker::{Server, JsonRpcFn};
-
-use std::collections::BTreeMap;
 
 fn echo(s: &Vec<Json>) -> Oneshot<Json> {
     debug!("calling {:?}", s);
@@ -22,8 +22,10 @@ fn echo(s: &Vec<Json>) -> Oneshot<Json> {
 fn main() {
     drop(env_logger::init());
 
-    let mut funcs: BTreeMap<String, JsonRpcFn> = BTreeMap::new();
-    funcs.insert("rust.test/echo".to_owned(), Box::new(echo));
+    let funcs = btreemap! {
+        "rust.test/echo".to_owned() => Box::new(echo) as JsonRpcFn
+    };
+
     let addr = "127.0.0.1:3299".parse().unwrap();
     let server = Server::new(addr, funcs);
     server.serve();

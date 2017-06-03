@@ -26,6 +26,7 @@ nom = "^3.0.0"
 
 [dev-dependencies]
 env_logger = "^0.4.0"
+maplit = "^0.1.4"
 
 [package.metadata.release]
 sign-commit = true
