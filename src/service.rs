@@ -88,7 +88,7 @@ impl<T> Service for SlackerService<T>
                 resp_header.packet_type = PACKET_TYPE_PONG;
                 ok(SlackerPacket(resp_header, SlackerPacketBody::Pong)).boxed()
             }
-            _ => err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported packet")).boxed(),
+            _ => err(io::Error::new(io::ErrorKind::InvalidData, "Unsupported packet")).boxed(),
         }
     }
 }
@@ -188,7 +188,7 @@ impl<T> Service for SlackerServiceSync<T>
                 resp_header.packet_type = PACKET_TYPE_PONG;
                 ok(SlackerPacket(header, SlackerPacketBody::Pong)).boxed()
             }
-            _ => err(io::Error::new(io::ErrorKind::InvalidInput, "Unsupported packet")).boxed(),
+            _ => err(io::Error::new(io::ErrorKind::InvalidData, "Unsupported packet")).boxed(),
         }
     }
 }
