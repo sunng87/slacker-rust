@@ -110,4 +110,16 @@ impl Client {
             Err(e) => err(e).boxed(),
         }
     }
+
+    pub fn ping(&self) -> BoxFuture<(), io::Error> {
+        let sid = self.serial_id_gen.fetch_add(1, Ordering::SeqCst) as i32;
+        let header = SlackerPacketHeader {
+            version: PROTOCOL_VERSION_5,
+            serial_id: sid,
+            packet_type: PACKET_TYPE_PING,
+        };
+
+        let body = SlackerPacketBody::Ping;
+        self.call(SlackerPacket(header, body)).map(|_| ()).boxed()
+    }
 }
