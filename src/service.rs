@@ -160,7 +160,7 @@ where
                                         content_type: sreq.content_type,
                                         data: result,
                                     });
-                                    SlackerPacket(header, body)
+                                    SlackerPacket(resp_header, body)
                                 })
                         })
                         .boxed()
