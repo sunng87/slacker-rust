@@ -1,6 +1,6 @@
 [package]
 name = "slacker"
-version = "0.1.2-pre"
+version = "0.1.2"
 authors = ["Ning Sun <sunng@about.me>"]
 description = "Slacker server built on top of tokio."
 license = "MIT/Apache-2.0"
