@@ -22,7 +22,8 @@ fn echo(s: &Vec<Json>) -> Oneshot<Json> {
 fn main() {
     drop(env_logger::init());
 
-    let funcs = btreemap! {
+    let funcs =
+        btreemap! {
         "rust.test/echo".to_owned() => Box::new(echo) as JsonRpcFn
     };
 

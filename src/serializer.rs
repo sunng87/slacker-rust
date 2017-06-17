@@ -31,10 +31,9 @@ impl Serializer for JsonSerializer {
     }
 
     fn deserialize_vec(&self, f: &[u8]) -> Result<Vec<Self::Format>> {
-        self.deserialize(f)
-            .and_then(|v| match v {
-                          Json::Array(a) => Ok(a),
-                          _ => Err(Error::new(ErrorKind::InvalidData, "Array required.")),
-                      })
+        self.deserialize(f).and_then(|v| match v {
+            Json::Array(a) => Ok(a),
+            _ => Err(Error::new(ErrorKind::InvalidData, "Array required.")),
+        })
     }
 }

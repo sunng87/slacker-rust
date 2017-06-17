@@ -20,11 +20,14 @@ fn main() {
     let addr = "127.0.0.1:3299".parse().unwrap();
     let client = manager.connect(&mut core, &addr);
 
-    core.run(client
-                 .and_then(|c| c.rpc_call("rust.test", "echo", vec![json!(1), json!(2)]))
-                 .and_then(|r| {
-                               println!("{:?}", r);
-                               Ok(())
-                           }))
-        .unwrap();
+    core.run(
+        client
+            .and_then(|c| {
+                c.rpc_call("rust.test", "echo", vec![json!(1), json!(2)])
+            })
+            .and_then(|r| {
+                println!("{:?}", r);
+                Ok(())
+            }),
+    ).unwrap();
 }

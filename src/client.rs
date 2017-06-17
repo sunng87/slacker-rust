@@ -27,21 +27,22 @@ impl ClientManager {
         ClientManager { serializer }
     }
 
-    pub fn connect(&self,
-                   core: &mut Core,
-                   addr: &SocketAddr)
-                   -> Box<Future<Item = Client, Error = io::Error>> {
+    pub fn connect(
+        &self,
+        core: &mut Core,
+        addr: &SocketAddr,
+    ) -> Box<Future<Item = Client, Error = io::Error>> {
         let handle = core.handle();
         let serializer = self.serializer.clone();
-        let rt = TcpClient::new(JsonSlacker)
-            .connect(addr, &handle)
-            .map(|client_service| {
-                     Client {
-                         inner: client_service,
-                         serial_id_gen: AtomicIsize::new(0),
-                         serializer,
-                     }
-                 });
+        let rt = TcpClient::new(JsonSlacker).connect(addr, &handle).map(
+            |client_service| {
+                Client {
+                    inner: client_service,
+                    serial_id_gen: AtomicIsize::new(0),
+                    serializer,
+                }
+            },
+        );
         Box::new(rt)
     }
 }
@@ -64,11 +65,12 @@ impl Service for Client {
 }
 
 impl Client {
-    pub fn rpc_call(&self,
-                    ns_name: &str,
-                    fn_name: &str,
-                    args: Vec<Json>)
-                    -> BoxFuture<Json, io::Error> {
+    pub fn rpc_call(
+        &self,
+        ns_name: &str,
+        fn_name: &str,
+        args: Vec<Json>,
+    ) -> BoxFuture<Json, io::Error> {
         let mut fname = String::new();
         fname.push_str(ns_name);
         fname.push_str("/");
@@ -82,15 +84,13 @@ impl Client {
         };
 
         let serializer = self.serializer.clone();
-        let body_result = serializer
-            .serialize(&args.into())
-            .map(|serialized_args| {
-                     SlackerPacketBody::Request(SlackerRequestPacket {
-                                                    content_type: JSON_CONTENT_TYPE,
-                                                    fname: fname,
-                                                    arguments: serialized_args,
-                                                })
-                 });
+        let body_result = serializer.serialize(&args.into()).map(|serialized_args| {
+            SlackerPacketBody::Request(SlackerRequestPacket {
+                content_type: JSON_CONTENT_TYPE,
+                fname: fname,
+                arguments: serialized_args,
+            })
+        });
         match body_result {
             Ok(body) => {
                 self.call(SlackerPacket(header, body))
@@ -101,7 +101,10 @@ impl Client {
                                 serializer.deserialize(&r.data).into_future()
                             }
                             _ => {
-                                err(io::Error::new(io::ErrorKind::InvalidData, "Unexpect packet."))
+                                err(io::Error::new(
+                                    io::ErrorKind::InvalidData,
+                                    "Unexpect packet.",
+                                ))
                             }
                         }
                     })
