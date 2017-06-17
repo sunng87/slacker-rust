@@ -68,8 +68,10 @@ impl Server {
 
     pub fn serve(&self) {
         let serializer = Arc::new(JsonSerializer);
-        let new_service = NewSlackerService(self.funcs.clone(), serializer);
-        TcpServer::new(JsonSlacker, self.addr).serve(new_service);
+        let funcs_ref = self.funcs.clone();
+        TcpServer::new(JsonSlacker, self.addr).serve(move || {
+            Ok(SlackerService::new(funcs_ref.clone(), serializer.clone()))
+        });
     }
 }
 
@@ -90,8 +92,15 @@ impl ThreadPoolServer {
 
     pub fn serve(&self) {
         let serializer = Arc::new(JsonSerializer);
-        let new_service = NewSlackerServiceSync(self.funcs.clone(), serializer, self.threads);
-        TcpServer::new(JsonSlacker, self.addr).serve(new_service);
+        let funcs_ref = self.funcs.clone();
+        let threads = self.threads;
+        TcpServer::new(JsonSlacker, self.addr).serve(move || {
+            Ok(SlackerServiceSync::new(
+                funcs_ref.clone(),
+                serializer.clone(),
+                threads,
+            ))
+        });
     }
 }
 

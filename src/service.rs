@@ -6,7 +6,7 @@ use futures::{IntoFuture, Future};
 use futures::future::{ok, err, BoxFuture};
 use futures::sync::oneshot::Receiver;
 use futures_cpupool::CpuPool;
-use tservice::{NewService, Service};
+use tservice::Service;
 
 use serde::Serialize;
 
@@ -99,27 +99,6 @@ where
     }
 }
 
-pub struct NewSlackerService<T>(
-    pub Arc<BTreeMap<String, RpcFn<T>>>,
-    pub Arc<Serializer<Format = T>>
-)
-where
-    T: Serialize + Send + Sync + 'static;
-
-impl<T> NewService for NewSlackerService<T>
-where
-    T: Serialize + Send + Sync + 'static,
-{
-    type Request = SlackerPacket;
-    type Response = SlackerPacket;
-    type Error = io::Error;
-    type Instance = SlackerService<T>;
-
-    fn new_service(&self) -> io::Result<Self::Instance> {
-        Ok(SlackerService::new(self.0.clone(), self.1.clone()))
-    }
-}
-
 pub struct SlackerServiceSync<T>
 where
     T: Serialize + Send + Sync + 'static,
@@ -206,31 +185,5 @@ where
                 )).boxed()
             }
         }
-    }
-}
-
-pub struct NewSlackerServiceSync<T>(
-    pub Arc<BTreeMap<String, RpcFnSync<T>>>,
-    pub Arc<Serializer<Format = T>>,
-    pub usize
-)
-where
-    T: Serialize + Send + Sync + 'static;
-
-impl<T> NewService for NewSlackerServiceSync<T>
-where
-    T: Serialize + Send + Sync + 'static,
-{
-    type Request = SlackerPacket;
-    type Response = SlackerPacket;
-    type Error = io::Error;
-    type Instance = SlackerServiceSync<T>;
-
-    fn new_service(&self) -> io::Result<Self::Instance> {
-        Ok(SlackerServiceSync::new(
-            self.0.clone(),
-            self.1.clone(),
-            self.2,
-        ))
     }
 }
