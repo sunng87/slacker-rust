@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use futures::{IntoFuture, Future};
-use futures::future::{ok, err, BoxFuture};
+use futures::future::{ok, err};
 use futures::sync::oneshot::Receiver;
 use futures_cpupool::CpuPool;
 use tservice::Service;
@@ -46,7 +46,7 @@ where
     type Request = SlackerPacket;
     type Response = SlackerPacket;
     type Error = io::Error;
-    type Future = BoxFuture<Self::Response, Self::Error>;
+    type Future = Box<Future<Item=Self::Response, Error=Self::Error>>;
 
     fn call(&self, req: Self::Request) -> Self::Future {
         let SlackerPacket(header, body) = req;
@@ -57,7 +57,7 @@ where
                     let s = self.serializer.clone();
                     match s.deserialize_vec(&sreq.arguments) {
                         Ok(args) => {
-                            f(&args)
+                            Box::new(f(&args)
                                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
                                 .and_then(move |r| s.serialize(&r).into_future())
                                 .and_then(move |result| {
@@ -70,30 +70,29 @@ where
                                         data: result,
                                     });
                                     ok(SlackerPacket(resp_header, body))
-                                })
-                                .boxed()
+                                }))
                         }
-                        Err(e) => err(e).boxed(),
+                        Err(e) => Box::new(err(e))
                     }
                 } else {
-                    ok(SlackerPacket(
+                    Box::new(ok(SlackerPacket(
                         header,
                         SlackerPacketBody::Error(
                             SlackerErrorPacket { result_code: RESULT_CODE_NOT_FOUND },
                         ),
-                    )).boxed()
+                    )))
                 }
             }
             SlackerPacketBody::Ping => {
                 let mut resp_header = header.clone();
                 resp_header.packet_type = PACKET_TYPE_PONG;
-                ok(SlackerPacket(resp_header, SlackerPacketBody::Pong)).boxed()
+                Box::new(ok(SlackerPacket(resp_header, SlackerPacketBody::Pong)))
             }
             _ => {
-                err(io::Error::new(
+                Box::new(err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "Unsupported packet",
-                )).boxed()
+                )))
             }
         }
     }
@@ -135,7 +134,7 @@ where
     type Request = SlackerPacket;
     type Response = SlackerPacket;
     type Error = io::Error;
-    type Future = BoxFuture<Self::Response, Self::Error>;
+    type Future = Box<Future<Item=Self::Response, Error=Self::Error>>;
 
     fn call(&self, req: Self::Request) -> Self::Future {
         let SlackerPacket(header, body) = req;
@@ -146,7 +145,7 @@ where
                     let f = fi.clone();
                     let s = self.serializer.clone();
 
-                    self.pool
+                    Box::new(self.pool
                         .spawn_fn(move || -> Result<Self::Response, Self::Error> {
                             s.deserialize_vec(&sreq.arguments)
                                 .map(|v| f(&v))
@@ -162,27 +161,26 @@ where
                                     });
                                     SlackerPacket(resp_header, body)
                                 })
-                        })
-                        .boxed()
+                        }))
                 } else {
-                    ok(SlackerPacket(
+                    Box::new(ok(SlackerPacket(
                         header,
                         SlackerPacketBody::Error(
                             SlackerErrorPacket { result_code: RESULT_CODE_NOT_FOUND },
                         ),
-                    )).boxed()
+                    )))
                 }
             }
             SlackerPacketBody::Ping => {
                 let mut resp_header = header.clone();
                 resp_header.packet_type = PACKET_TYPE_PONG;
-                ok(SlackerPacket(header, SlackerPacketBody::Pong)).boxed()
+                Box::new(ok(SlackerPacket(header, SlackerPacketBody::Pong)))
             }
             _ => {
-                err(io::Error::new(
+                Box::new(err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     "Unsupported packet",
-                )).boxed()
+                )))
             }
         }
     }

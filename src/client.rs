@@ -7,7 +7,7 @@ use tproto::TcpClient;
 use tproto::multiplex::ClientService;
 use tcore::net::TcpStream;
 use tcore::reactor::Core;
-use futures::{Future, IntoFuture, BoxFuture};
+use futures::{Future, IntoFuture};
 use futures::future::err;
 use tservice::Service;
 
@@ -57,10 +57,10 @@ impl Service for Client {
     type Request = SlackerPacket;
     type Response = SlackerPacket;
     type Error = io::Error;
-    type Future = BoxFuture<Self::Response, Self::Error>;
+    type Future = Box<Future<Item=Self::Response, Error=Self::Error>>;
 
     fn call(&self, req: Self::Request) -> Self::Future {
-        self.inner.call(req).boxed()
+        Box::new(self.inner.call(req))
     }
 }
 
@@ -70,7 +70,7 @@ impl Client {
         ns_name: &str,
         fn_name: &str,
         args: Vec<Json>,
-    ) -> BoxFuture<Json, io::Error> {
+    ) -> Box<Future<Item=Json, Error=io::Error>> {
         let mut fname = String::new();
         fname.push_str(ns_name);
         fname.push_str("/");
@@ -93,7 +93,7 @@ impl Client {
         });
         match body_result {
             Ok(body) => {
-                self.call(SlackerPacket(header, body))
+                Box::new(self.call(SlackerPacket(header, body))
                     .and_then(move |SlackerPacket(_, body)| {
                         debug!("getting results {:?}", body);
                         match body {
@@ -107,14 +107,14 @@ impl Client {
                                 ))
                             }
                         }
-                    })
-                    .boxed()
+                    }))
+                    
             }
-            Err(e) => err(e).boxed(),
+            Err(e) => Box::new(err(e)),
         }
     }
 
-    pub fn ping(&self) -> BoxFuture<(), io::Error> {
+    pub fn ping(&self) -> Box<Future<Item=(), Error=io::Error>> {
         let sid = self.serial_id_gen.fetch_add(1, Ordering::SeqCst) as i32;
         let header = SlackerPacketHeader {
             version: PROTOCOL_VERSION_5,
@@ -123,6 +123,6 @@ impl Client {
         };
 
         let body = SlackerPacketBody::Ping;
-        self.call(SlackerPacket(header, body)).map(|_| ()).boxed()
+        Box::new(self.call(SlackerPacket(header, body)).map(|_| ()))
     }
 }
