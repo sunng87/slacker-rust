@@ -1,4 +1,4 @@
-use nom::{be_u8, be_u16, be_u32, be_i32};
+use nom::{be_i32, be_u16, be_u32, be_u8};
 
 pub const PROTOCOL_VERSION_5: u8 = 5;
 pub const RESULT_CODE_SUCCESS: u8 = 0;
@@ -15,7 +15,6 @@ pub const PACKET_TYPE_INSPECT_REQUEST: u8 = 7;
 pub const PACKET_TYPE_INSPECT_RESPONSE: u8 = 8;
 pub const PACKET_TYPE_INTERRUPT: u8 = 9;
 
-
 #[derive(Debug, Copy, Clone)]
 pub struct SlackerPacketHeader {
     pub version: u8,
@@ -23,17 +22,16 @@ pub struct SlackerPacketHeader {
     pub packet_type: u8,
 }
 
-named!(slacker_header<SlackerPacketHeader>,
-       do_parse!( v: be_u8 >>
-                  t: be_i32 >>
-                  p: be_u8 >>
-                  (
-                      SlackerPacketHeader {
-                          version: v,
-                          serial_id: t,
-                          packet_type: p
-                      }
-                  )));
+named!(
+    slacker_header<SlackerPacketHeader>,
+    do_parse!(
+        v: be_u8 >> t: be_i32 >> p: be_u8 >> (SlackerPacketHeader {
+            version: v,
+            serial_id: t,
+            packet_type: p
+        })
+    )
+);
 
 #[derive(Debug)]
 pub struct SlackerRequestPacket {
@@ -49,13 +47,10 @@ pub struct SlackerResponsePacket {
     pub data: Vec<u8>,
 }
 
-
-
 #[derive(Debug)]
 pub struct SlackerErrorPacket {
     pub result_code: u8,
 }
-
 
 #[derive(Debug)]
 pub struct SlackerInspectRequestPacket {
@@ -63,12 +58,10 @@ pub struct SlackerInspectRequestPacket {
     pub data: Vec<u8>,
 }
 
-
 #[derive(Debug)]
 pub struct SlackerInspectResponsePacket {
     pub data: Vec<u8>,
 }
-
 
 #[derive(Debug)]
 pub struct SlackerInterruptPacket {
@@ -102,7 +95,6 @@ named!(slacker_request <&[u8], SlackerPacketBody>,
                           }
                       )
                   )));
-
 
 named!(slacker_response <&[u8], SlackerPacketBody>,
        do_parse!(ct: be_u8 >>

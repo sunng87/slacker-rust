@@ -3,13 +3,13 @@ extern crate log;
 #[macro_use]
 extern crate maplit;
 
-extern crate slacker;
-extern crate serde_json;
-extern crate futures;
 extern crate env_logger;
+extern crate futures;
+extern crate serde_json;
+extern crate slacker;
 
 use serde_json::value::Value as Json;
-use slacker::{ThreadPoolServer, JsonRpcFnSync};
+use slacker::{JsonRpcFnSync, ThreadPoolServer};
 
 use std::sync::Arc;
 
@@ -21,8 +21,7 @@ fn echo(s: &Vec<Json>) -> Json {
 fn main() {
     drop(env_logger::init());
 
-    let funcs =
-        btreemap! {
+    let funcs = btreemap! {
         "rust.test/echo".to_owned() => Arc::new(echo) as JsonRpcFnSync
     };
 

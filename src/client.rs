@@ -1,21 +1,21 @@
 use std::io;
-use std::sync::Arc;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::Arc;
 
-use tproto::TcpClient;
-use tproto::multiplex::ClientService;
+use futures::future::err;
+use futures::{Future, IntoFuture};
 use tcore::net::TcpStream;
 use tcore::reactor::Core;
-use futures::{Future, IntoFuture};
-use futures::future::err;
+use tproto::multiplex::ClientService;
+use tproto::TcpClient;
 use tservice::Service;
 
 use serde_json::value::Value as Json;
 
-use serializer::*;
-use parser::*;
 use json::*;
+use parser::*;
+use serializer::*;
 
 pub struct ClientManager {
     serializer: Arc<JsonSerializer>,
@@ -34,15 +34,13 @@ impl ClientManager {
     ) -> Box<Future<Item = Client, Error = io::Error>> {
         let handle = core.handle();
         let serializer = self.serializer.clone();
-        let rt = TcpClient::new(JsonSlacker).connect(addr, &handle).map(
-            |client_service| {
-                Client {
-                    inner: client_service,
-                    serial_id_gen: AtomicIsize::new(0),
-                    serializer,
-                }
-            },
-        );
+        let rt = TcpClient::new(JsonSlacker)
+            .connect(addr, &handle)
+            .map(|client_service| Client {
+                inner: client_service,
+                serial_id_gen: AtomicIsize::new(0),
+                serializer,
+            });
         Box::new(rt)
     }
 }
@@ -57,7 +55,7 @@ impl Service for Client {
     type Request = SlackerPacket;
     type Response = SlackerPacket;
     type Error = io::Error;
-    type Future = Box<Future<Item=Self::Response, Error=Self::Error>>;
+    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
 
     fn call(&self, req: Self::Request) -> Self::Future {
         Box::new(self.inner.call(req))
@@ -70,7 +68,7 @@ impl Client {
         ns_name: &str,
         fn_name: &str,
         args: Vec<Json>,
-    ) -> Box<Future<Item=Json, Error=io::Error>> {
+    ) -> Box<Future<Item = Json, Error = io::Error>> {
         let mut fname = String::new();
         fname.push_str(ns_name);
         fname.push_str("/");
@@ -92,29 +90,25 @@ impl Client {
             })
         });
         match body_result {
-            Ok(body) => {
-                Box::new(self.call(SlackerPacket(header, body))
-                    .and_then(move |SlackerPacket(_, body)| {
-                        debug!("getting results {:?}", body);
-                        match body {
-                            SlackerPacketBody::Response(r) => {
-                                serializer.deserialize(&r.data).into_future()
-                            }
-                            _ => {
-                                err(io::Error::new(
-                                    io::ErrorKind::InvalidData,
-                                    "Unexpect packet.",
-                                ))
-                            }
+            Ok(body) => Box::new(self.call(SlackerPacket(header, body)).and_then(
+                move |SlackerPacket(_, body)| {
+                    debug!("getting results {:?}", body);
+                    match body {
+                        SlackerPacketBody::Response(r) => {
+                            serializer.deserialize(&r.data).into_future()
                         }
-                    }))
-                    
-            }
+                        _ => err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "Unexpect packet.",
+                        )),
+                    }
+                },
+            )),
             Err(e) => Box::new(err(e)),
         }
     }
 
-    pub fn ping(&self) -> Box<Future<Item=(), Error=io::Error>> {
+    pub fn ping(&self) -> Box<Future<Item = (), Error = io::Error>> {
         let sid = self.serial_id_gen.fetch_add(1, Ordering::SeqCst) as i32;
         let header = SlackerPacketHeader {
             version: PROTOCOL_VERSION_5,

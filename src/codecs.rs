@@ -1,10 +1,10 @@
-use nom::{IResult, Offset};
-use bytes::{BytesMut, BufMut, Writer};
-use tio::codec::{Encoder, Decoder};
-use tproto::multiplex::RequestId;
 use byteorder::{BigEndian, WriteBytesExt};
+use bytes::{BufMut, BytesMut, Writer};
+use nom::{IResult, Offset};
+use tio::codec::{Decoder, Encoder};
+use tproto::multiplex::RequestId;
 
-use std::io::{self, Write, ErrorKind};
+use std::io::{self, ErrorKind, Write};
 
 //use packets::*;
 use parser::*;

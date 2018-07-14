@@ -3,14 +3,14 @@ extern crate log;
 #[macro_use]
 extern crate maplit;
 
-extern crate slacker;
-extern crate serde_json;
-extern crate futures;
 extern crate env_logger;
+extern crate futures;
+extern crate serde_json;
+extern crate slacker;
 
 use futures::{oneshot, Oneshot};
 use serde_json::value::Value as Json;
-use slacker::{Server, JsonRpcFn};
+use slacker::{JsonRpcFn, Server};
 
 fn echo(s: &Vec<Json>) -> Oneshot<Json> {
     debug!("calling {:?}", s);
@@ -22,8 +22,7 @@ fn echo(s: &Vec<Json>) -> Oneshot<Json> {
 fn main() {
     drop(env_logger::init());
 
-    let funcs =
-        btreemap! {
+    let funcs = btreemap! {
         "rust.test/echo".to_owned() => Box::new(echo) as JsonRpcFn
     };
 

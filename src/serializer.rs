@@ -1,4 +1,4 @@
-use std::io::{Result, Error, ErrorKind};
+use std::io::{Error, ErrorKind, Result};
 
 use serde::Serialize;
 

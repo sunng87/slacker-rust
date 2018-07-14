@@ -4,42 +4,42 @@ extern crate log;
 #[macro_use]
 extern crate nom;
 
-extern crate tokio_io as tio;
-extern crate tokio_core as tcore;
-extern crate tokio_proto as tproto;
-extern crate tokio_service as tservice;
+extern crate byteorder;
+extern crate bytes;
 extern crate futures;
 extern crate futures_cpupool;
 extern crate serde;
 extern crate serde_json;
-extern crate bytes;
-extern crate byteorder;
+extern crate tokio_core as tcore;
+extern crate tokio_io as tio;
+extern crate tokio_proto as tproto;
+extern crate tokio_service as tservice;
 
-mod codecs;
-mod parser;
-mod service;
-mod serializer;
 mod client;
+mod codecs;
 mod json;
+mod parser;
+mod serializer;
+mod service;
 
-use tproto::TcpServer;
-use tproto::multiplex::{ClientProto, ServerProto};
-use tio::AsyncRead;
-use tio::codec::Framed;
 use tcore::net::TcpStream;
+use tio::codec::Framed;
+use tio::AsyncRead;
+use tproto::multiplex::{ClientProto, ServerProto};
+use tproto::TcpServer;
 
 use std::collections::BTreeMap;
 use std::io;
-use std::sync::Arc;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
+pub use client::{Client, ClientManager};
 use codecs::*;
-use serializer::*;
-use parser::*;
-use service::*;
 use json::*;
 pub use json::{JsonRpcFn, JsonRpcFnSync};
-pub use client::{Client, ClientManager};
+use parser::*;
+use serializer::*;
+use service::*;
 
 impl ServerProto<TcpStream> for JsonSlacker {
     type Request = SlackerPacket;
@@ -69,9 +69,8 @@ impl Server {
     pub fn serve(&self) {
         let serializer = Arc::new(JsonSerializer);
         let funcs_ref = self.funcs.clone();
-        TcpServer::new(JsonSlacker, self.addr).serve(move || {
-            Ok(SlackerService::new(funcs_ref.clone(), serializer.clone()))
-        });
+        TcpServer::new(JsonSlacker, self.addr)
+            .serve(move || Ok(SlackerService::new(funcs_ref.clone(), serializer.clone())));
     }
 }
 
