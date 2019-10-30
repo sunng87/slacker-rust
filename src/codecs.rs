@@ -1,8 +1,7 @@
 use byteorder::{BigEndian, WriteBytesExt};
 use bytes::{BufMut, BytesMut, Writer};
 use nom::{IResult, Offset};
-use tio::codec::{Decoder, Encoder};
-use tproto::multiplex::RequestId;
+use tokio_codec::{Decoder, Encoder};
 
 use std::io::{self, ErrorKind, Write};
 

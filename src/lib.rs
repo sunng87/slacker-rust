@@ -10,10 +10,8 @@ extern crate futures;
 extern crate futures_cpupool;
 extern crate serde;
 extern crate serde_json;
-extern crate tokio_core as tcore;
-extern crate tokio_io as tio;
-extern crate tokio_proto as tproto;
-extern crate tokio_service as tservice;
+extern crate tokio;
+extern crate tokio_codec;
 
 mod client;
 mod codecs;
@@ -22,11 +20,7 @@ mod parser;
 mod serializer;
 mod service;
 
-use tcore::net::TcpStream;
-use tio::codec::Framed;
-use tio::AsyncRead;
-use tproto::multiplex::{ClientProto, ServerProto};
-use tproto::TcpServer;
+use tokio::net::{TcpStream, TcpListener};
 
 use std::collections::BTreeMap;
 use std::io;
@@ -40,18 +34,6 @@ pub use json::{JsonRpcFn, JsonRpcFnSync};
 use parser::*;
 use serializer::*;
 use service::*;
-
-impl ServerProto<TcpStream> for JsonSlacker {
-    type Request = SlackerPacket;
-    type Response = SlackerPacket;
-    type Transport = Framed<TcpStream, SlackerCodec>;
-    type BindTransport = io::Result<Self::Transport>;
-
-    fn bind_transport(&self, io: TcpStream) -> Self::BindTransport {
-        io.set_nodelay(true);
-        Ok(io.framed(SlackerCodec))
-    }
-}
 
 pub struct Server {
     addr: SocketAddr,
@@ -100,17 +82,5 @@ impl ThreadPoolServer {
                 threads,
             ))
         });
-    }
-}
-
-impl ClientProto<TcpStream> for JsonSlacker {
-    type Request = SlackerPacket;
-    type Response = SlackerPacket;
-    type Transport = Framed<TcpStream, SlackerCodec>;
-    type BindTransport = io::Result<Self::Transport>;
-
-    fn bind_transport(&self, io: TcpStream) -> Self::BindTransport {
-        io.set_nodelay(true);
-        Ok(io.framed(SlackerCodec))
     }
 }
